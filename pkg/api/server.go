@@ -6,9 +6,9 @@ import (
 	"maps"
 	"time"
 
-	pb "github.com/iuliansafta/control-plane/api/proto"
-	"github.com/iuliansafta/control-plane/pkg/nomad"
-	"github.com/iuliansafta/control-plane/pkg/utils"
+	pb "github.com/vorash/vora-cloud/api/proto"
+	"github.com/vorash/vora-cloud/pkg/nomad"
+	"github.com/vorash/vora-cloud/pkg/utils"
 )
 
 type ApplicationService struct {

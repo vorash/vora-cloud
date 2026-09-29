@@ -1108,7 +1108,7 @@ const file_api_proto_controlplane_proto_rawDesc = "" +
 	"\x11DeleteApplication\x12\x1b.controlplane.DeleteRequest\x1a\x1c.controlplane.DeleteResponse\x12Q\n" +
 	"\x14GetApplicationStatus\x12\x1b.controlplane.StatusRequest\x1a\x1c.controlplane.StatusResponse\x12K\n" +
 	"\x12GetApplicationLogs\x12\x19.controlplane.LogsRequest\x1a\x1a.controlplane.LogsResponse\x12R\n" +
-	"\vHealthCheck\x12 .controlplane.HealthCheckRequest\x1a!.controlplane.HealthCheckResponseB0Z.github.com/iuliansafta/control-plane/api/protob\x06proto3"
+	"\vHealthCheck\x12 .controlplane.HealthCheckRequest\x1a!.controlplane.HealthCheckResponseB(Z&github.com/vorash/vora-cloud/api/protob\x06proto3"
 
 var (
 	file_api_proto_controlplane_proto_rawDescOnce sync.Once

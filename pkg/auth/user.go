@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/iuliansafta/control-plane/pkg/database"
+	"github.com/vorash/vora-cloud/pkg/database"
 )
 
 const (

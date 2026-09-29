@@ -9,7 +9,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/iuliansafta/control-plane/pkg/database"
+	"github.com/vorash/vora-cloud/pkg/database"
 )
 
 // APIKeyService handles API key operations

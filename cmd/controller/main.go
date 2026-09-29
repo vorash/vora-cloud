@@ -9,13 +9,13 @@ import (
 	"syscall"
 	"time"
 
-	pb "github.com/iuliansafta/control-plane/api/proto"
-	"github.com/iuliansafta/control-plane/pkg/api"
-	"github.com/iuliansafta/control-plane/pkg/auth"
-	"github.com/iuliansafta/control-plane/pkg/config"
-	"github.com/iuliansafta/control-plane/pkg/database"
-	"github.com/iuliansafta/control-plane/pkg/nomad"
-	"github.com/iuliansafta/control-plane/pkg/rest"
+	pb "github.com/vorash/vora-cloud/api/proto"
+	"github.com/vorash/vora-cloud/pkg/api"
+	"github.com/vorash/vora-cloud/pkg/auth"
+	"github.com/vorash/vora-cloud/pkg/config"
+	"github.com/vorash/vora-cloud/pkg/database"
+	"github.com/vorash/vora-cloud/pkg/nomad"
+	"github.com/vorash/vora-cloud/pkg/rest"
 	"google.golang.org/grpc"
 )
 

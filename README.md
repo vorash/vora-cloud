@@ -29,7 +29,7 @@ A Go-based control plane service for deploying and managing containerized applic
 
 1. **Clone the repository:**
    ```bash
-   git clone github.com/iuliansafta/control-plane
+   git clone github.com/vorash/vora-cloud
    cd control-plane
    ```
 

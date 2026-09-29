@@ -1,4 +1,4 @@
-module github.com/iuliansafta/control-plane
+module github.com/vorash/vora-cloud
 
 go 1.25.0
 

@@ -1,6 +1,6 @@
 package config
 
-import "github.com/iuliansafta/control-plane/pkg/utils"
+import "github.com/vorash/vora-cloud/pkg/utils"
 
 type Config struct {
 	GRPCPort     string
