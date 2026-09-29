@@ -1,4 +1,4 @@
-.PHONY: build install-tools check-tools proto lint test clean migrate-up migrate-down migrate-force check fmt-check vet
+.PHONY: build install-tools check-tools proto lint test clean migrate-up migrate-down migrate-force check fmt-check vet test-envtest
 
 build:
 	go build -o bin/controller cmd/controller/main.go
@@ -73,3 +73,10 @@ check: fmt-check vet
 	@go test ./...
 	@go build ./...
 	@echo "check passed"
+
+# Runs the deployer against a real kube-apiserver and etcd (no cluster needed).
+# The first run downloads the binaries; the version matches the pinned k3s.
+ENVTEST_K8S_VERSION ?= 1.37.x
+test-envtest:
+	@KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@latest use -p path $(ENVTEST_K8S_VERSION))" \
+		go test -tags envtest ./pkg/deploy/k3s/
