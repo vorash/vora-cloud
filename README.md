@@ -1,314 +1,150 @@
 # vora-cloud
 
-A Go service for deploying and managing containerized applications: connect GitHub, build, deploy. The system provides a gRPC API for application deployment operations and includes a command-line interface for easy interaction.
+A Go service for deploying containerized applications to Kubernetes (k3s): connect GitHub, build, deploy. It exposes a gRPC API, a REST API with Swagger UI, and a command-line client.
 
-> **Status:** under construction. The Nomad-based deployment described below is being replaced by k3s, one cluster per region ([ADR 001](docs/adr/001-k3s-per-region.md)). The roadmap is tracked in [#2](https://github.com/vorash/vora-cloud/issues/2).
+> **Status:** under construction. Deploying an image works; GitHub, builds, projects and the dashboard are still on the roadmap in [#2](https://github.com/vorash/vora-cloud/issues/2). Design decisions are in [docs/adr](docs/adr).
 
-## Architecture
+## How it works
 
-![Architecture](./docs/diagram.png)
+Each region is one small k3s cluster. vora-cloud sits above the clusters, holds one deployer per region, and sends every request to the region the caller named ([ADR 001](docs/adr/001-k3s-per-region.md), [ADR 002](docs/adr/002-region-model.md)).
 
-**Components:**
-- **gRPC Server**: Accepts deployment requests and translates them to Nomad job specifications
-- **CLI Client**: Command-line interface for interacting with vora-cloud
-- **Nomad Integration**: Orchestrates container deployments through HashiCorp Nomad
-- **Traefik Support**: Automatic reverse proxy configuration for web applications
-
-
-### Prerequisites
-
-- **Go >1.24+** for building
-- **HashiCorp Nomad** running locally or remotely
-- **Docker/Container** for container runtime
-- **Devbox** (optional, for development environment)
-
-
-### Prerequisites Linux
-- **Refer to the Ansible repository** ![Ansible Bare Metal](https://github.com/iuliansafta/ansible-ubuntu)
-
-
-### Installation
-
-1. **Clone the repository:**
-   ```bash
-   git clone github.com/vorash/vora-cloud
-   cd vora-cloud
-   ```
-
-2. **Build the binaries:**
-   ```bash
-   make build
-   ```
-
-3. **Start Nomad** (if not already running):
-   ```bash
-   # Download and start Nomad in dev mode
-   nomad agent -dev
-   ```
-
-4. **Start the vora-cloud server:**
-   ```bash
-   ./bin/controller -port=50051 -nomad=http://localhost:4646
-   ```
-
-5. **Deploy your first application:**
-   ```bash
-   ./bin/cli -action=deploy -name=whoami -image=traefik/whoami:latest
-   ```
-
-## gRPC Service
-
-vora-cloud exposes a gRPC service for programmatic access to deployment operations.
-
-### Service Definition
-
-```protobuf
-service ControlPlane {
-    rpc DeployApplication(DeployRequest) returns (DeployResponse);
-    rpc DeleteApplication(DeleteRequest) returns (DeleteResponse);
-    rpc GetApplicationStatus(StatusRequest) returns (StatusResponse);
-}
+```text
+  CLI · REST · gRPC clients
+            │
+       vora-cloud ── Postgres (users, API keys)
+            │  region id -> kubeconfig
+    ┌───────┴────────┐
+    ▼                ▼
+  eu cluster      us cluster      (only regions listed in REGIONS exist)
+  k3s + Traefik
 ```
 
-### How to Use the gRPC Service
+For each app, a deployment creates a namespace per project, a Secret with the environment, a Deployment (rolling update that never removes a serving pod first, readiness probe, requests equal to limits), a Service, and, when a host is set, a Traefik Ingress. Deploying the same app twice changes nothing.
 
-#### 1. Generate Client Code
+## Requirements
 
-The protobuf definitions are in `api/proto/controlplane.proto`. Generate client code for your language:
+- Go 1.26 or later
+- A k3s cluster per region and a kubeconfig for each, with Traefik as the ingress class
+- PostgreSQL, for users and API keys
+- `protoc` with `protoc-gen-go` and `protoc-gen-go-grpc` to regenerate the API code (`make install-tools`)
+- The [`migrate`](https://github.com/golang-migrate/migrate) CLI for `make migrate-up`
+
+## Run it
 
 ```bash
-make proto
-```
-
-#### 2. Connect to the Service
-
-**Go Example:**
-```go
-conn, err := grpc.NewClient("localhost:50051", 
-    grpc.WithTransportCredentials(insecure.NewCredentials()))
-if err != nil {
-    log.Fatal(err)
-}
-defer conn.Close()
-
-client := pb.NewControlPlaneClient(conn)
-```
-
-#### 3. Deploy Applications
-
-**Go Example:**
-```go
-resp, err := client.DeployApplication(ctx, &pb.DeployRequest{
-    Name:        "my-app",
-    Image:       "nginx:latest",
-    Replicas:    3,
-    Cpu:         0.5,
-    Memory:      512,
-    Region:      "global",
-    NetworkMode: pb.NetworkMode_NETWORK_MODE_HOST,
-    Labels:      map[string]string{"env": "production"},
-    Traefik: &pb.TraefikConfig{
-        Enable: true,
-        Host:   "myapp.local",
-    },
-})
-```
-
-### API Reference
-
-#### DeployRequest
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Unique application name |
-| `image` | string | Docker image (e.g., `nginx:latest`) |
-| `replicas` | int32 | Number of instances |
-| `cpu` | double | CPU cores allocation |
-| `memory` | int64 | Memory in MB |
-| `region` | string | Target region |
-| `network_mode` | NetworkMode | Host or bridge networking |
-| `labels` | map<string,string> | Environment variables |
-| `traefik` | TraefikConfig | Reverse proxy configuration |
-
-#### NetworkMode Enum
-
-- `NETWORK_MODE_UNSPECIFIED` (0) - Defaults to host
-- `NETWORK_MODE_HOST` (1) - Host networking
-- `NETWORK_MODE_BRIDGE` (2) - Bridge networking (requires CNI)
-
-#### TraefikConfig
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `enable` | bool | Enable Traefik integration |
-| `host` | string | Hostname for routing |
-| `ssl` | bool | Enable HTTPS |
-| `health_check_path` | string | Health check endpoint |
-
-### How to Develop the gRPC Service
-
-#### 1. Development Environment
-
-Using Devbox (recommended):
-```bash
-devbox shell
-```
-
-Manual setup:
-```bash
-# Install protobuf compiler
-brew install protobuf
-
-# Install Go plugins
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-```
-
-#### 2. Making Changes
-
-**Modify the API:**
-1. Edit `api/proto/controlplane.proto`
-2. Regenerate code: `make proto`
-3. Update service implementation in `pkg/api/server.go`
-
-**Add New Features:**
-1. Update protobuf schema
-2. Implement in `pkg/api/server.go`
-3. Add corresponding Nomad job logic in `pkg/nomad/job.go`
-4. Test with CLI or custom client
-
-#### 3. Development Commands
-
-```bash
-# Build everything
+git clone git@github.com:vorash/vora-cloud.git
+cd vora-cloud
 make build
 
-# Generate protobuf code
-make proto
-
-# Check required tools
-make check-tools
-
-# Install missing tools
-make install-tools
-
-# Run the server in development
-./bin/controller -port=50051 -nomad=http://localhost:4646
-
-# Test with CLI
-./bin/cli -action=deploy -name=test -image=nginx:latest
+cp .env.example .env    # then edit it
 ```
+
+The controller reads its configuration from the environment:
+
+| Variable | Meaning |
+|----------|---------|
+| `REGIONS` | Required. `<region>=<kubeconfig path>`, comma separated, e.g. `eu=/etc/vora-cloud/eu.kubeconfig`. The server refuses to start if it is empty or malformed |
+| `INGRESS_CLASS` | Ingress class for apps (default `traefik`) |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_SECRET` | Required, at least 32 characters |
+| `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
+| `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |
+
+```bash
+DATABASE_URL=postgres://... make migrate-up
+set -a; . ./.env; set +a
+./bin/controller
+```
+
+Deploy an app to the `eu` region and check it:
+
+```bash
+./bin/cli -action=deploy -region=eu -name=whoami -image=traefik/whoami:latest \
+  -host=whoami.eu.example.com -ssl
+./bin/cli -action=status -region=eu -name=whoami
+./bin/cli -action=delete -region=eu -name=whoami
+```
+
+## API
+
+### Deployment ids
+
+A deployment id is `<region>/<name>`, for example `eu/whoami`. Deploy returns it, and status and delete take it, because those requests carry no region. Ids without a region are rejected. In REST paths send the slash as `%2F`: `/api/v1/applications/eu%2Fwhoami/status`.
+
+### gRPC
+
+The service is `ControlPlane` in [`api/proto/controlplane.proto`](api/proto/controlplane.proto) (`DeployApplication`, `DeleteApplication`, `GetApplicationStatus`, `HealthCheck`; `GetApplicationLogs` is not implemented yet).
+
+`DeployRequest` fields:
+
+| Field | Notes |
+|-------|-------|
+| `name` | DNS label (lowercase letters, digits, `-`). Until projects exist, an app is its own project |
+| `image` | Required |
+| `replicas` | `0` pauses the app |
+| `cpu`, `memory` | Cores and MB, both required. They are the request and the limit |
+| `region` | Required. An empty or unknown region fails; there is no default |
+| `labels` | Become the app's environment variables |
+| `traefik` | See below |
+| `network_mode` | Ignored: pods use the cluster network |
+
+The container port is fixed at 80 for now.
+
+Supported `TraefikConfig` fields: `enable`, `host`, `enable_ssl` and `health_check_path`. Setting any of `entrypoint`, `ssl_host`, `cert_resolver`, `health_check_interval`, `path_prefix`, `middlewares` or `custom_labels` is rejected, because they only made sense as Nomad service tags.
+
+`StatusResponse.job_status` is one of `pending`, `rolling_out`, `ready`, `failed` or `not_found`. A rollout that makes no progress for five minutes is `failed`.
+
+### REST
+
+Served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
+
+| Route | Purpose |
+|-------|---------|
+| `POST /applications` | Deploy |
+| `DELETE /applications/:id` | Delete |
+| `GET /applications/:id/status` | Status |
+| `/auth/*` | Register, log in, refresh, log out |
+| `/user/keys`, `/admin/keys` | API keys |
 
 ## CLI
 
-The Command-Line Interface provides an easy way to interact with the vora-cloud service.
-
-### How to Use the CLI
-
-#### Basic Usage
-
 ```bash
-./bin/cli [flags]
+./bin/cli -action=<deploy|delete|status|health> [flags]
 ```
 
-#### Global Flags
-
-- `-server string` - gRPC server address (default: `localhost:50051`)
-- `-action string` - Action to perform: `deploy`, `delete` (default: `deploy`)
-
-#### Deploy Applications
-
-**Basic deployment:**
-```bash
-./bin/cli -action=deploy -name=whoami -image=traefik/whoami:latest
-```
-
-**Production deployment with resources:**
-```bash
-./bin/cli -action=deploy \
-  -name=webapp \
-  -image=nginx:latest \
-  -replicas=3 \
-  -cpu=0.5 \
-  -memory=512 \
-  -region=euparis01
-```
-
-**Web application with Traefik:**
-```bash
-./bin/cli -action=deploy \
-  -name=frontend \
-  -image=nginx:latest \
-  -host=myapp.local \
-  -ssl
-```
-
-**Bridge networking (with CNI):**
-```bash
-./bin/cli -action=deploy \
-  -name=service \
-  -image=myservice:latest \
-  -network=bridge
-```
-
-#### Delete Applications
-
-**Delete by name:**
-```bash
-./bin/cli -action=delete -name=whoami
-
-```
-
-#### Deployment Flags
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `-name` | string | `test-app` | Application name |
-| `-image` | string | `traefik/whoami:latest` | Container image |
-| `-replicas` | int | `1` | Number of replicas |
-| `-cpu` | float | `0.1` | CPU cores |
-| `-memory` | int | `128` | Memory in MB |
-| `-region` | string | `global` | Target region |
-| `-network` | string | `host` | Network mode (host/bridge) |
-| `-host` | string | `""` | Enable Traefik with hostname |
-| `-ssl` | bool | `false` | Enable SSL for Traefik |
-
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `-server` | `localhost:50051` | gRPC address |
+| `-region` | none | Required. Region id, e.g. `eu` |
+| `-name` | none | App name |
+| `-image` | none | Container image |
+| `-replicas` | `1` | Instances |
+| `-cpu` | `0.1` | CPU cores |
+| `-memory` | `128` | Memory in MB |
+| `-host` | none | Public hostname (enables the ingress) |
+| `-ssl` | `false` | Serve the host over HTTPS |
+| `-delete-id` | none | Deployment id to delete, instead of `-region` and `-name` |
+| `-network` | `host` | Accepted for compatibility; ignored |
 
 ## Development
 
-### Build System
-
-The project uses a Makefile for common development tasks:
-
 ```bash
-make build
-make proto
-make check-tools
-make install-tools
+make check          # the merge gate: gofmt, go vet, golangci-lint (if installed), tests, build
+make proto          # regenerate the gRPC code after editing controlplane.proto
+make install-tools  # protoc plugins and golangci-lint
+make migrate-up     # apply migrations (needs DATABASE_URL and the migrate CLI)
 ```
 
-### Merge gate
+GitHub Actions is not available for this repository, so `make check` is the merge gate and must pass locally before a change is merged. Use `devbox shell` for a ready environment (Go 1.26).
 
-GitHub Actions is not available for this repository, so `make check` is the gate
-and must pass locally before a change is merged. It checks formatting, runs
-`go vet`, `golangci-lint` (reported as SKIPPED when not installed), the tests,
-and the build.
+Code layout:
 
-```bash
-make check
-```
-
-### Environment Setup
-
-**Using Devbox (recommended):**
-```bash
-devbox shell
-# Provides: Go 1.26, golangci-lint, and development tools
-```
-
-## Additional Resources
-
-- **Nomad Documentation**: https://developer.hashicorp.com/nomad/docs
-- **gRPC Go Tutorial**: https://grpc.io/docs/languages/go/
-- **Protocol Buffers**: https://protobuf.dev/
-- **Traefik Documentation**: https://doc.traefik.io/traefik/
+| Path | Contents |
+|------|----------|
+| `pkg/deploy` | The region-agnostic `Deployer` interface, `Spec` validation, and the region `Registry` |
+| `pkg/deploy/k3s` | The Kubernetes implementation (server-side apply with client-go) |
+| `pkg/api` | The gRPC service, on top of the registry |
+| `pkg/rest` | REST handlers and routes |
+| `pkg/auth`, `pkg/database` | Users, API keys and JWT, on PostgreSQL |
+| `cmd/controller`, `cmd/cli` | The server and the command-line client |
+| `docs/adr` | Architecture decision records |
