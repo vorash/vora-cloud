@@ -116,18 +116,7 @@ func deployApp(ctx context.Context, client pb.ControlPlaneClient, config *Deploy
 		log.Fatalf("Invalid network mode: %s (must be 'host' or 'bridge')", config.NetworkMode)
 	}
 
-	// Configure Traefik if host is provided
-	var traefikConfig *pb.TraefikConfig
-	if config.TraefikHost != "" {
-		traefikConfig = &pb.TraefikConfig{
-			Enable:              true,
-			Host:                config.TraefikHost,
-			Entrypoint:          "websecure",
-			EnableSsl:           config.TraefikSSL,
-			HealthCheckPath:     "/",
-			HealthCheckInterval: "30s",
-		}
-	}
+	traefikConfig := traefikFor(config.TraefikHost, config.TraefikSSL)
 
 	req := &pb.DeployRequest{
 		Name:        config.Name,
@@ -150,6 +139,21 @@ func deployApp(ctx context.Context, client pb.ControlPlaneClient, config *Deploy
 	fmt.Printf("ID: %s\n", resp.DeploymentId)
 	fmt.Printf("Status: %s\n", resp.Status)
 	fmt.Printf("Message: %s\n", resp.Message)
+}
+
+// traefikFor exposes the app on host when one is given. It sets only the
+// options the server supports: it rejects the rest (entrypoint, health check
+// interval, ...) because they were Nomad service tags.
+func traefikFor(host string, ssl bool) *pb.TraefikConfig {
+	if host == "" {
+		return nil
+	}
+	return &pb.TraefikConfig{
+		Enable:          true,
+		Host:            host,
+		EnableSsl:       ssl,
+		HealthCheckPath: "/",
+	}
 }
 
 // deploymentID is "<region>/<name>", the id the server returns from deploy.
