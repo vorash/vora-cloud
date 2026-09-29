@@ -303,7 +303,7 @@ make check
 **Using Devbox (recommended):**
 ```bash
 devbox shell
-# Provides: Go 1.25, golangci-lint, and development tools
+# Provides: Go 1.26, golangci-lint, and development tools
 ```
 
 ## Additional Resources

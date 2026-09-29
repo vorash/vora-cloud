@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
-  "packages": ["go@1.25"],
+  "packages": ["go@1.26"],
   "shell": {
     "init_hook": [
       "export PATH=$PATH:$(go env GOPATH)/bin",
