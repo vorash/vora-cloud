@@ -69,6 +69,8 @@ type Deployer interface {
 	Delete(ctx context.Context, project, name string) error
 	// DeleteProject removes the project and every app in it.
 	DeleteProject(ctx context.Context, project string) error
+	// Health returns an error when the region's cluster cannot be reached.
+	Health(ctx context.Context) error
 }
 
 var (

@@ -74,6 +74,7 @@ func (stubDeployer) Deploy(context.Context, Spec) error                     { re
 func (stubDeployer) Status(context.Context, string, string) (Status, error) { return Status{}, nil }
 func (stubDeployer) Delete(context.Context, string, string) error           { return nil }
 func (stubDeployer) DeleteProject(context.Context, string) error            { return nil }
+func (stubDeployer) Health(context.Context) error                           { return nil }
 
 func TestRegistryResolvesConfiguredRegions(t *testing.T) {
 	eu := stubDeployer{"eu"}

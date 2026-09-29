@@ -21,6 +21,7 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	netv1ac "k8s.io/client-go/applyconfigurations/networking/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/vorash/vora-cloud/pkg/deploy"
 )
@@ -58,6 +59,33 @@ func New(client kubernetes.Interface, opts Options) *Deployer {
 		opts.IngressClass = "traefik"
 	}
 	return &Deployer{client: client, ingressClass: opts.IngressClass}
+}
+
+// NewFromKubeconfig connects to the cluster a kubeconfig file points at. An
+// empty path is an error: clientcmd would otherwise fall back to whatever
+// cluster the environment happens to describe.
+func NewFromKubeconfig(path string, opts Options) (*Deployer, error) {
+	if path == "" {
+		return nil, fmt.Errorf("k3s: kubeconfig path is required")
+	}
+	cfg, err := clientcmd.BuildConfigFromFlags("", path)
+	if err != nil {
+		return nil, fmt.Errorf("k3s: load kubeconfig %s: %w", path, err)
+	}
+	client, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("k3s: create client: %w", err)
+	}
+	return New(client, opts), nil
+}
+
+// Health asks the API server for its version, which needs no permissions
+// beyond reaching it.
+func (d *Deployer) Health(context.Context) error {
+	if _, err := d.client.Discovery().ServerVersion(); err != nil {
+		return fmt.Errorf("k3s: api server unreachable: %w", err)
+	}
+	return nil
 }
 
 // Namespace is the namespace a project's apps live in.
