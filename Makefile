@@ -1,4 +1,4 @@
-.PHONY: build install-tools check-tools proto lint test clean migrate-up migrate-down migrate-force check fmt-check vet test-envtest
+.PHONY: build install-tools check-tools proto lint test clean migrate-up migrate-down migrate-force check fmt-check vet test-envtest test-migrations
 
 build:
 	go build -o bin/controller cmd/controller/main.go
@@ -80,3 +80,7 @@ ENVTEST_K8S_VERSION ?= 1.37.x
 test-envtest:
 	@KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@latest use -p path $(ENVTEST_K8S_VERSION))" \
 		go test -tags envtest ./pkg/deploy/k3s/
+
+# Runs the migrations on throwaway PostgreSQL clusters (needs PG_BIN and the migrate CLI).
+test-migrations:
+	@scripts/test-migrations.sh
