@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package controlplane;
-option go_package = "github.com/iuliansafta/control-plane/api/proto";
+option go_package = "github.com/vorash/vora-cloud/api/proto";
 
 enum NetworkMode {
     NETWORK_MODE_UNSPECIFIED = 0; // Defaults to HOST

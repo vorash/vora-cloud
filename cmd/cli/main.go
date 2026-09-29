@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/iuliansafta/control-plane/api/proto"
+	pb "github.com/vorash/vora-cloud/api/proto"
 )
 
 type DeployConfig struct {

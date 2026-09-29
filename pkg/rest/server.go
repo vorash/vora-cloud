@@ -19,9 +19,9 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	_ "github.com/iuliansafta/control-plane/docs"
-	"github.com/iuliansafta/control-plane/pkg/api"
-	"github.com/iuliansafta/control-plane/pkg/auth"
+	_ "github.com/vorash/vora-cloud/docs"
+	"github.com/vorash/vora-cloud/pkg/api"
+	"github.com/vorash/vora-cloud/pkg/auth"
 	echoSwagger "github.com/swaggo/echo-swagger"
 )
 

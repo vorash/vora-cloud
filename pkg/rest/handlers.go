@@ -6,7 +6,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	pb "github.com/iuliansafta/control-plane/api/proto"
+	pb "github.com/vorash/vora-cloud/api/proto"
 )
 
 // DeployRequest JSON request for deployment
