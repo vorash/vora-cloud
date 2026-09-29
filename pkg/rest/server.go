@@ -19,10 +19,10 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	echoSwagger "github.com/swaggo/echo-swagger"
 	_ "github.com/vorash/vora-cloud/docs"
 	"github.com/vorash/vora-cloud/pkg/api"
 	"github.com/vorash/vora-cloud/pkg/auth"
-	echoSwagger "github.com/swaggo/echo-swagger"
 )
 
 // Server the REST API server

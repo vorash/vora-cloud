@@ -1,4 +1,4 @@
-.PHONY: build install-tools check-tools proto lint test clean migrate-up migrate-down migrate-force
+.PHONY: build install-tools check-tools proto lint test clean migrate-up migrate-down migrate-force check fmt-check vet
 
 build:
 	go build -o bin/controller cmd/controller/main.go
@@ -58,3 +58,18 @@ migrate-down:
 
 migrate-force:
 	@migrate -path migrations -database "$(DATABASE_URL)" force
+
+fmt-check:
+	@out=$$(gofmt -l $$(git ls-files '*.go')); \
+	if [ -n "$$out" ]; then echo "gofmt needed on:"; echo "$$out"; exit 1; fi
+
+vet:
+	@go vet ./...
+
+# The merge gate: GitHub Actions has no credits on this account, so CI cannot run.
+check: fmt-check vet
+	@if command -v golangci-lint >/dev/null; then $(MAKE) --no-print-directory lint; \
+	else echo "SKIPPED lint: golangci-lint not installed (make install-tools)"; fi
+	@go test ./...
+	@go build ./...
+	@echo "check passed"

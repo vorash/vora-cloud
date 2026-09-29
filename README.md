@@ -285,6 +285,17 @@ make check-tools
 make install-tools
 ```
 
+### Merge gate
+
+GitHub Actions is not available for this repository, so `make check` is the gate
+and must pass locally before a change is merged. It checks formatting, runs
+`go vet`, `golangci-lint` (reported as SKIPPED when not installed), the tests,
+and the build.
+
+```bash
+make check
+```
+
 ### Environment Setup
 
 **Using Devbox (recommended):**
