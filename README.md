@@ -1,6 +1,8 @@
-# Control Plane
+# vora-cloud
 
-A Go-based control plane service for deploying and managing containerized applications through HashiCorp Nomad. The system provides a gRPC API for application deployment operations and includes a command-line interface for easy interaction.
+A Go service for deploying and managing containerized applications: connect GitHub, build, deploy. The system provides a gRPC API for application deployment operations and includes a command-line interface for easy interaction.
+
+> **Status:** under construction. The Nomad-based deployment described below is being replaced by k3s, one cluster per region ([ADR 001](docs/adr/001-k3s-per-region.md)). The roadmap is tracked in [#2](https://github.com/vorash/vora-cloud/issues/2).
 
 ## Architecture
 
@@ -8,7 +10,7 @@ A Go-based control plane service for deploying and managing containerized applic
 
 **Components:**
 - **gRPC Server**: Accepts deployment requests and translates them to Nomad job specifications
-- **CLI Client**: Command-line interface for interacting with the control plane
+- **CLI Client**: Command-line interface for interacting with vora-cloud
 - **Nomad Integration**: Orchestrates container deployments through HashiCorp Nomad
 - **Traefik Support**: Automatic reverse proxy configuration for web applications
 
@@ -30,7 +32,7 @@ A Go-based control plane service for deploying and managing containerized applic
 1. **Clone the repository:**
    ```bash
    git clone github.com/vorash/vora-cloud
-   cd control-plane
+   cd vora-cloud
    ```
 
 2. **Build the binaries:**
@@ -44,7 +46,7 @@ A Go-based control plane service for deploying and managing containerized applic
    nomad agent -dev
    ```
 
-4. **Start the Control Plane server:**
+4. **Start the vora-cloud server:**
    ```bash
    ./bin/controller -port=50051 -nomad=http://localhost:4646
    ```
@@ -56,7 +58,7 @@ A Go-based control plane service for deploying and managing containerized applic
 
 ## gRPC Service
 
-The Control Plane exposes a gRPC service for programmatic access to deployment operations.
+vora-cloud exposes a gRPC service for programmatic access to deployment operations.
 
 ### Service Definition
 
@@ -199,7 +201,7 @@ make install-tools
 
 ## CLI
 
-The Command-Line Interface provides an easy way to interact with the Control Plane service.
+The Command-Line Interface provides an easy way to interact with the vora-cloud service.
 
 ### How to Use the CLI
 
