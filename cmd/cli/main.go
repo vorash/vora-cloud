@@ -56,7 +56,7 @@ func main() {
 		replicas    = flag.Int("replicas", 1, "Number of replicas")
 		cpu         = flag.Float64("cpu", 0.1, "CPU cores")
 		memory      = flag.Int64("memory", 128, "Memory in MB")
-		region      = flag.String("region", "global", "Target region")
+		region      = flag.String("region", "", "Region, e.g. eu (required for deploy, and with -name for delete and status)")
 		networkMode = flag.String("network", "host", "Network mode: host, bridge")
 		traefikHost = flag.String("host", "", "Enable Traefik with hostname")
 		traefikSSL  = flag.Bool("ssl", false, "Enable SSL for Traefik")
@@ -90,9 +90,9 @@ func main() {
 		}
 		deployApp(ctx, client, config)
 	case "delete":
-		deleteApp(ctx, client, *deleteId, *name)
+		deleteApp(ctx, client, *deleteId, *region, *name)
 	case "status":
-		getStatus(ctx, client, *name)
+		getStatus(ctx, client, *region, *name)
 	case "health":
 		healthCheck(ctx, client)
 	default:
@@ -152,14 +152,18 @@ func deployApp(ctx context.Context, client pb.ControlPlaneClient, config *Deploy
 	fmt.Printf("Message: %s\n", resp.Message)
 }
 
-func deleteApp(ctx context.Context, client pb.ControlPlaneClient, deleteId, name string) {
+// deploymentID is "<region>/<name>", the id the server returns from deploy.
+func deploymentID(region, name string) string {
+	if region == "" || name == "" {
+		log.Fatalf("-region and -name are required (the deployment id is <region>/<name>)")
+	}
+	return region + "/" + name
+}
+
+func deleteApp(ctx context.Context, client pb.ControlPlaneClient, deleteId, region, name string) {
 	targetId := deleteId
 	if targetId == "" {
-		targetId = name
-	}
-
-	if targetId == "" {
-		log.Fatalf("-delete-id or -name must be provided for delete action")
+		targetId = deploymentID(region, name)
 	}
 
 	req := &pb.DeleteRequest{
@@ -175,13 +179,9 @@ func deleteApp(ctx context.Context, client pb.ControlPlaneClient, deleteId, name
 	fmt.Printf("%s\n", resp.Message)
 }
 
-func getStatus(ctx context.Context, client pb.ControlPlaneClient, name string) {
-	if name == "" {
-		log.Fatalf("-name must be provided for get deployment status")
-	}
-
+func getStatus(ctx context.Context, client pb.ControlPlaneClient, region, name string) {
 	req := &pb.StatusRequest{
-		DeploymentId: name,
+		DeploymentId: deploymentID(region, name),
 	}
 
 	resp, err := client.GetApplicationStatus(ctx, req)
@@ -247,7 +247,7 @@ func printUsage() {
 	fmt.Println("  -replicas int          Number of replicas (default: 1)")
 	fmt.Println("  -cpu float             CPU cores (default: 0.1)")
 	fmt.Println("  -memory int            Memory in MB (default: 128)")
-	fmt.Println("  -region string         Target region (default: global)")
+	fmt.Println("  -region string         Region, e.g. eu (required)")
 	fmt.Println("  -network string        Network mode: host, bridge (default: host)")
 	fmt.Println("  -host string   		  Enable Traefik with hostname")
 	fmt.Println("  -ssl           		  Enable SSL for Traefik")

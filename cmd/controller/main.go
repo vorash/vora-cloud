@@ -14,7 +14,8 @@ import (
 	"github.com/vorash/vora-cloud/pkg/auth"
 	"github.com/vorash/vora-cloud/pkg/config"
 	"github.com/vorash/vora-cloud/pkg/database"
-	"github.com/vorash/vora-cloud/pkg/nomad"
+	"github.com/vorash/vora-cloud/pkg/deploy"
+	"github.com/vorash/vora-cloud/pkg/deploy/k3s"
 	"github.com/vorash/vora-cloud/pkg/rest"
 	"google.golang.org/grpc"
 )
@@ -28,10 +29,22 @@ func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
 
-	// Initialize Nomad client
-	nomadClient, err := nomad.NewNomadClient(cfg.NomadAddr)
+	// One deployer per region, each talking to that region's cluster.
+	kubeconfigs, err := config.ParseRegions(cfg.Regions)
 	if err != nil {
-		log.Fatalf("Failed to create Nomad client: %v", err)
+		log.Fatal(err)
+	}
+	deployers := make(map[string]deploy.Deployer, len(kubeconfigs))
+	for region, path := range kubeconfigs {
+		d, err := k3s.NewFromKubeconfig(path, k3s.Options{IngressClass: cfg.IngressClass})
+		if err != nil {
+			log.Fatalf("Failed to connect region %s: %v", region, err)
+		}
+		deployers[region] = d
+	}
+	regions, err := deploy.NewRegistry(deployers)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	if cfg.DBConnection == "" {
@@ -92,8 +105,8 @@ func main() {
 		}
 	}
 
-	// Init gRPC service with Nomad client
-	appService := api.NewApplicationService(nomadClient)
+	// Init gRPC service with the region registry
+	appService := api.NewApplicationService(regions)
 
 	// Create gRPC listener
 	grpcListener, err := net.Listen("tcp", ":"+cfg.GRPCPort)
@@ -110,7 +123,7 @@ func main() {
 
 	// Start gRPC server
 	go func() {
-		log.Printf("Starting gRPC server on :%s (nomad: %s)", cfg.GRPCPort, cfg.NomadAddr)
+		log.Printf("Starting gRPC server on :%s (regions: %v)", cfg.GRPCPort, regions.Regions())
 		if err := grpcServer.Serve(grpcListener); err != nil {
 			log.Fatalf("Failed to serve gRPC: %v", err)
 		}

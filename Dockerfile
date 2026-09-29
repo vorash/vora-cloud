@@ -37,7 +37,6 @@ USER controller
 
 EXPOSE 50051
 
-ENV NOMAD_ADDR=""
 ENV GRPC_PORT="50051"
 
 ENTRYPOINT ["/app/controller"]

@@ -411,3 +411,31 @@ func TestStatusReadsTheClusterObject(t *testing.T) {
 		t.Errorf("Status = %+v, %v", st, err)
 	}
 }
+
+func TestHealthIsNilWhenTheAPIServerAnswers(t *testing.T) {
+	d, _ := newDeployer()
+	if err := d.Health(context.Background()); err != nil {
+		t.Errorf("Health = %v, want nil", err)
+	}
+}
+
+func TestHealthReportsAnUnreachableAPIServer(t *testing.T) {
+	d, cs := newDeployer()
+	cs.PrependReactor("get", "version", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("connection refused")
+	})
+	if err := d.Health(context.Background()); err == nil {
+		t.Error("Health = nil, want an error when the API server is down")
+	}
+}
+
+// clientcmd falls back to in-cluster or default config for an empty path,
+// which would quietly point a region at the wrong cluster.
+func TestNewFromKubeconfigRejectsAMissingPathInsteadOfFallingBack(t *testing.T) {
+	if _, err := NewFromKubeconfig("", Options{}); err == nil {
+		t.Error("expected an error for an empty kubeconfig path")
+	}
+	if _, err := NewFromKubeconfig("/nonexistent/kubeconfig", Options{}); err == nil {
+		t.Error("expected an error for an unreadable kubeconfig")
+	}
+}
