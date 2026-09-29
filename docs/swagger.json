@@ -1,12 +1,12 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "API for the Control Plane service",
-        "title": "Control Plane API",
+        "description": "API for deploying applications to regional k3s clusters",
+        "title": "vora-cloud API",
         "contact": {},
         "version": "1.0"
     },
-    "host": "localhost:8080",
+    "host": "localhost:5000",
     "basePath": "/api/v1",
     "paths": {
         "/admin/keys": {
@@ -181,7 +181,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Deploy a new application",
+                "description": "Deploy an application to the region named in the request. The response carries the deployment ID, \u003cregion\u003e/\u003cname\u003e.",
                 "consumes": [
                     "application/json"
                 ],
@@ -241,7 +241,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete an application by ID",
+                "description": "Delete an application and everything it created. The ID is \u003cregion\u003e/\u003cname\u003e; send the slash as %2F.",
                 "consumes": [
                     "application/json"
                 ],
@@ -255,7 +255,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Deployment ID",
+                        "description": "Deployment ID, \u003cregion\u003e/\u003cname\u003e with the slash as %2F",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -299,7 +299,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get status of an application by ID",
+                "description": "Get the rollout status of an application. The ID is \u003cregion\u003e/\u003cname\u003e; send the slash as %2F.",
                 "consumes": [
                     "application/json"
                 ],
@@ -313,7 +313,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Deployment ID",
+                        "description": "Deployment ID, \u003cregion\u003e/\u003cname\u003e with the slash as %2F",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -877,7 +877,6 @@
                     "type": "string"
                 },
                 "key": {
-                    "description": "Returned once on creation",
                     "type": "string"
                 },
                 "name": {

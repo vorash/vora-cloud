@@ -20,10 +20,10 @@ import (
 	"google.golang.org/grpc"
 )
 
-// @title Control Plane API
+// @title vora-cloud API
 // @version 1.0
-// @description API for the Control Plane service
-// @host localhost:8080
+// @description API for deploying applications to regional k3s clusters
+// @host localhost:5000
 // @BasePath /api/v1
 func main() {
 	// Load configuration

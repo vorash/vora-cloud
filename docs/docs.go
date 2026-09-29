@@ -187,7 +187,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Deploy a new application",
+                "description": "Deploy an application to the region named in the request. The response carries the deployment ID, \u003cregion\u003e/\u003cname\u003e.",
                 "consumes": [
                     "application/json"
                 ],
@@ -247,7 +247,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete an application by ID",
+                "description": "Delete an application and everything it created. The ID is \u003cregion\u003e/\u003cname\u003e; send the slash as %2F.",
                 "consumes": [
                     "application/json"
                 ],
@@ -261,7 +261,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Deployment ID",
+                        "description": "Deployment ID, \u003cregion\u003e/\u003cname\u003e with the slash as %2F",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -305,7 +305,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get status of an application by ID",
+                "description": "Get the rollout status of an application. The ID is \u003cregion\u003e/\u003cname\u003e; send the slash as %2F.",
                 "consumes": [
                     "application/json"
                 ],
@@ -319,7 +319,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Deployment ID",
+                        "description": "Deployment ID, \u003cregion\u003e/\u003cname\u003e with the slash as %2F",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -883,7 +883,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "key": {
-                    "description": "Returned once on creation",
                     "type": "string"
                 },
                 "name": {
@@ -1161,11 +1160,11 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "localhost:8080",
+	Host:             "localhost:5000",
 	BasePath:         "/api/v1",
 	Schemes:          []string{},
-	Title:            "Control Plane API",
-	Description:      "API for the Control Plane service",
+	Title:            "vora-cloud API",
+	Description:      "API for deploying applications to regional k3s clusters",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

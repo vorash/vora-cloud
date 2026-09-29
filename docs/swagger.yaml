@@ -44,7 +44,6 @@ definitions:
       id:
         type: string
       key:
-        description: Returned once on creation
         type: string
       name:
         type: string
@@ -222,11 +221,11 @@ definitions:
       name:
         type: string
     type: object
-host: localhost:8080
+host: localhost:5000
 info:
   contact: {}
-  description: API for the Control Plane service
-  title: Control Plane API
+  description: API for deploying applications to regional k3s clusters
+  title: vora-cloud API
   version: "1.0"
 paths:
   /admin/keys:
@@ -333,7 +332,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Deploy a new application
+      description: Deploy an application to the region named in the request. The response
+        carries the deployment ID, <region>/<name>.
       parameters:
       - description: Deploy Request
         in: body
@@ -370,9 +370,10 @@ paths:
     delete:
       consumes:
       - application/json
-      description: Delete an application by ID
+      description: Delete an application and everything it created. The ID is <region>/<name>;
+        send the slash as %2F.
       parameters:
-      - description: Deployment ID
+      - description: Deployment ID, <region>/<name> with the slash as %2F
         in: path
         name: id
         required: true
@@ -406,9 +407,10 @@ paths:
     get:
       consumes:
       - application/json
-      description: Get status of an application by ID
+      description: Get the rollout status of an application. The ID is <region>/<name>;
+        send the slash as %2F.
       parameters:
-      - description: Deployment ID
+      - description: Deployment ID, <region>/<name> with the slash as %2F
         in: path
         name: id
         required: true
