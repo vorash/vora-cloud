@@ -2,7 +2,9 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/labstack/echo/v4"
 
@@ -72,6 +74,20 @@ type AllocationStatus struct {
 	CreateTime    int64             `json:"create_time"`
 	ModifyTime    int64             `json:"modify_time"`
 	TaskStates    map[string]string `json:"task_states"`
+}
+
+// deploymentIDParam returns the :id path parameter. Deployment ids look like
+// "eu/web", so clients send the slash as %2F, and echo hands the parameter over
+// still escaped.
+func deploymentIDParam(c echo.Context) (string, error) {
+	id, err := url.PathUnescape(c.Param("id"))
+	if err != nil {
+		return "", errors.New("deployment_id is not valid URL encoding")
+	}
+	if id == "" {
+		return "", errors.New("deployment_id is required")
+	}
+	return id, nil
 }
 
 // deployApplication handles POST /api/v1/applications
@@ -159,10 +175,10 @@ func (s *Server) deployApplication(c echo.Context) error {
 // @Failure 500 {object} map[string]string
 // @Router /applications/{id} [delete]
 func (s *Server) deleteApplication(c echo.Context) error {
-	deploymentID := c.Param("id")
-	if deploymentID == "" {
+	deploymentID, err := deploymentIDParam(c)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "deployment_id is required",
+			"error": err.Error(),
 		})
 	}
 
@@ -204,10 +220,10 @@ func (s *Server) deleteApplication(c echo.Context) error {
 // @Failure 500 {object} map[string]string
 // @Router /applications/{id}/status [get]
 func (s *Server) getApplicationStatus(c echo.Context) error {
-	deploymentID := c.Param("id")
-	if deploymentID == "" {
+	deploymentID, err := deploymentIDParam(c)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "deployment_id is required",
+			"error": err.Error(),
 		})
 	}
 
