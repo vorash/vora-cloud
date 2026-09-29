@@ -130,6 +130,7 @@ Served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
 
 ```bash
 make check          # the merge gate: gofmt, go vet, golangci-lint (if installed), tests, build
+make test-envtest    # run the deployer against a real kube-apiserver and etcd (downloads them once)
 make proto          # regenerate the gRPC code after editing controlplane.proto
 make install-tools  # protoc plugins and golangci-lint
 make migrate-up     # apply migrations (needs DATABASE_URL and the migrate CLI)
