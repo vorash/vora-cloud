@@ -92,7 +92,7 @@ func deploymentIDParam(c echo.Context) (string, error) {
 
 // deployApplication handles POST /api/v1/applications
 // @Summary Deploy an application
-// @Description Deploy a new application
+// @Description Deploy an application to the region named in the request. The response carries the deployment ID, <region>/<name>.
 // @Tags applications
 // @Accept json
 // @Produce json
@@ -163,13 +163,13 @@ func (s *Server) deployApplication(c echo.Context) error {
 
 // deleteApplication handles DELETE /api/v1/applications/:id
 // @Summary Delete an application
-// @Description Delete an application by ID
+// @Description Delete an application and everything it created. The ID is <region>/<name>; send the slash as %2F.
 // @Tags applications
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Security ApiKeyAuth
-// @Param id path string true "Deployment ID"
+// @Param id path string true "Deployment ID, <region>/<name> with the slash as %2F"
 // @Success 200 {object} DeleteResponse
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
@@ -208,13 +208,13 @@ func (s *Server) deleteApplication(c echo.Context) error {
 
 // getApplicationStatus handles GET /api/v1/applications/:id/status
 // @Summary Get application status
-// @Description Get status of an application by ID
+// @Description Get the rollout status of an application. The ID is <region>/<name>; send the slash as %2F.
 // @Tags applications
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Security ApiKeyAuth
-// @Param id path string true "Deployment ID"
+// @Param id path string true "Deployment ID, <region>/<name> with the slash as %2F"
 // @Success 200 {object} StatusResponse
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
