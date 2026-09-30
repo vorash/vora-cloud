@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"time"
 
@@ -31,7 +32,10 @@ func (d *Dashboard) secureHeaders(next echo.HandlerFunc) echo.HandlerFunc {
 		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "no-referrer")
+		// Not "no-referrer": the Fetch spec then makes browsers send "Origin: null"
+		// on form posts even to this same site, and Firefox does, which the
+		// Origin check would refuse. "same-origin" sends nothing cross-site.
+		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Cache-Control", "no-store")
 		if c.Scheme() == "https" {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
@@ -51,7 +55,11 @@ func (d *Dashboard) sameOrigin(c echo.Context) bool {
 		want = c.Scheme() + "://" + c.Request().Host
 	}
 	origin := c.Request().Header.Get("Origin")
-	return origin != "" && origin == want
+	if origin == "" || origin != want {
+		log.Printf("dashboard: refused %s %s: Origin %q, want %q", c.Request().Method, c.Path(), origin, want)
+		return false
+	}
+	return true
 }
 
 func (d *Dashboard) originCheck(next echo.HandlerFunc) echo.HandlerFunc {
