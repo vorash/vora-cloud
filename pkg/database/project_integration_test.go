@@ -127,6 +127,50 @@ func TestProjectRepository(t *testing.T) {
 	}
 }
 
+// The newest deployment of each of an owner's projects, and nothing of
+// another owner's.
+func TestLatestDeployments(t *testing.T) {
+	ctx := context.Background()
+	repo, owner := newTestRepo(t)
+	other := uuid.New()
+	if _, err := repo.db.Exec(ctx,
+		`INSERT INTO users (id, name, email, password_hash) VALUES ($1, 'other', $2, 'x')`, other, other.String()+"@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = repo.db.Exec(ctx, `DELETE FROM users WHERE id = $1`, other) })
+
+	mine := newProject(owner, "it-"+uuid.NewString()[:8])
+	idle := newProject(owner, "it-"+uuid.NewString()[:8])
+	theirs := newProject(other, "it-"+uuid.NewString()[:8])
+	for _, p := range []*project.Project{mine, idle, theirs} {
+		if err := repo.CreateProject(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = repo.DeleteProject(ctx, p.ID) })
+	}
+	var newest *project.Deployment
+	for _, in := range []struct {
+		p     *project.Project
+		image string
+	}{{mine, "i:1"}, {mine, "i:2"}, {theirs, "i:3"}} {
+		d := &project.Deployment{ProjectID: in.p.ID, Status: project.StatusQueued, Image: in.image, Region: "eu"}
+		if err := repo.CreateDeployment(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+		if in.image == "i:2" {
+			newest = d
+		}
+	}
+
+	got, err := repo.LatestDeployments(ctx, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[mine.ID].ID != newest.ID {
+		t.Errorf("want only %s's newest deployment %s, got %+v", mine.Slug, newest.ID, got)
+	}
+}
+
 // A session is found by its token hash while it is valid, and not after it
 // expires, is deleted, or its user is deactivated.
 func TestSessionRepository(t *testing.T) {

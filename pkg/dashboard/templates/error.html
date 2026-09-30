@@ -1,1 +1,6 @@
-{{define "content"}}<p><a href="/">Back to projects</a></p>{{end}}
+{{define "content"}}<div class="empty">
+  <p class="empty-code">{{.Code}}</p>
+  <h1 class="empty-title">{{.Title}}</h1>
+  <p class="empty-text">{{.Message}}</p>
+  <a class="btn btn-primary" href="/">Back to projects</a>
+</div>{{end}}

@@ -1,10 +1,14 @@
-{{define "content"}}
-<h1>Sign in</h1>
-<form method="post" action="/login">
-  <label for="email">Email</label>
-  <input id="email" name="email" type="email" autocomplete="username" required autofocus>
-  <label for="password">Password</label>
-  <input id="password" name="password" type="password" autocomplete="current-password" required>
-  <p><button type="submit">Sign in</button></p>
-</form>
-{{end}}
+{{define "content"}}<div class="auth-card">
+  <a class="auth-logo" href="/login" aria-label="vora cloud">{{template "logo"}}</a>
+  <h1 class="auth-title">Sign in</h1>
+  <p class="auth-sub">to continue to vora cloud.</p>
+  {{if .Error}}<div class="alert alert-error" role="alert"><p>{{.Error}}</p></div>{{end}}
+  <form method="post" action="/login">
+    <div class="field"><label class="label" for="email">Email</label>
+      <input class="input" id="email" name="email" type="email" autocomplete="username" required autofocus></div>
+    <div class="field"><label class="label" for="password">Password</label>
+      <input class="input" id="password" name="password" type="password" autocomplete="current-password" required></div>
+    <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+  </form>
+  <p class="auth-foot">Don't have an account? Ask an administrator.</p>
+</div>{{end}}

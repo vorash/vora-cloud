@@ -1,21 +1,43 @@
+{{define "logo"}}<picture><source media="(prefers-color-scheme: dark)" srcset="/assets/brand/vora-logo-night.svg"><img src="/assets/brand/vora-logo.svg" alt="vora" width="82" height="28"></picture>{{end}}
+{{define "status"}}<span class="status status-{{.}}"><span class="dot" aria-hidden="true"></span>{{.}}</span>{{end}}
+{{define "time"}}<time datetime="{{iso .}}" title="{{exact .}}">{{ago .}}</time>{{end}}
 {{define "base"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0b0f" media="(prefers-color-scheme: dark)">
 <title>{{.Title}} · vora cloud</title>
-<link rel="stylesheet" href="/assets/app.css">
+<link rel="icon" type="image/svg+xml" href="/assets/brand/vora-mark-small.svg" media="(prefers-color-scheme: light)">
+<link rel="icon" type="image/svg+xml" href="/assets/brand/vora-mark-night-small.svg" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="/assets/fonts/switzer-variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/app.css?v={{.Asset}}">
 </head>
 <body>
-<header>
-  <a class="brand" href="/">vora cloud</a>
-  {{if .User}}<span>{{.User}} ·
-    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="link" type="submit">Sign out</button></form>
-  </span>{{end}}
-</header>
-<main>
-{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+<a class="skip" href="#main">Skip to content</a>
+{{if eq .Shell "app"}}<div class="shell">
+  <header class="rail">
+    <a class="brand" href="/" aria-label="vora cloud, projects">{{template "logo"}}</a>
+    <a class="btn btn-primary btn-block" href="/projects/new">New project</a>
+    <nav aria-label="Main"><ul class="nav"><li><a href="/"{{if .Home}} aria-current="page"{{else}} class="is-here"{{end}}>Projects</a></li></ul></nav>
+    <div class="rail-foot">
+      <div class="who"><span class="who-name">{{.User}}</span></div>
+      <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn btn-secondary btn-sm" type="submit">Sign out</button></form>
+    </div>
+  </header>
+  <main id="main" class="main">
+{{if .Error}}<div class="alert alert-error" role="alert"><p>{{.Error}}</p></div>{{end}}
+{{template "content" .}}
+  </main>
+</div>
+{{else if eq .Shell "auth"}}<main id="main" class="auth">
 {{template "content" .}}
 </main>
-</body>
+{{else}}<header class="anon-bar"><a class="brand" href="/" aria-label="vora cloud">{{template "logo"}}</a></header>
+<main id="main" class="anon-main">
+{{template "content" .}}
+</main>
+{{end}}</body>
 </html>{{end}}

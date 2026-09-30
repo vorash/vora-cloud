@@ -186,3 +186,5 @@ Code layout:
 ## License
 
 Proprietary, all rights reserved (see [LICENSE](LICENSE)). This is a closed project under vora.sh.
+
+The dashboard embeds two fonts with their licences in `pkg/dashboard/assets/fonts`: Switzer (ITF Free Font License, v2.0) and Fragment Mono (SIL OFL 1.1). Switzer's licence allows it on our own servers only: the file must stay byte-identical to Fontshare's (no subsetting or conversion), and must not go into a public repository or a binary or image handed to anyone else.

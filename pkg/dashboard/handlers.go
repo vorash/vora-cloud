@@ -19,16 +19,31 @@ import (
 type page struct {
 	Title string
 	// User is the signed-in user's name; empty on the sign-in page.
-	User  string
-	CSRF  string
+	User string
+	CSRF string
+	// Error is the reason a form was refused, shown in an alert above the page.
 	Error string
-	Data  any
+	// Code and Message are an error page's status and text.
+	Code    int
+	Message string
+	// Home marks the projects list, which the navigation shows as the current page.
+	Home bool
+	Data any
+
+	// Set by render. Shell is "app" (the navigation rail, signed in), "auth"
+	// (sign-in) or "plain" (other signed-out pages); Asset versions the stylesheet.
+	Shell string
+	Asset string
 }
 
 func (d *Dashboard) render(c echo.Context, status int, name string, p page) error {
+	p.Asset = d.cssVersion
 	if csrf, ok := c.Get(csrfKey).(string); ok {
-		p.CSRF = csrf
-		p.User = sessionOf(c).UserName
+		p.CSRF, p.User, p.Shell = csrf, sessionOf(c).UserName, "app"
+	} else if name == "login" {
+		p.Shell = "auth"
+	} else {
+		p.Shell = "plain"
 	}
 	t, ok := d.pages[name]
 	if !ok {
@@ -43,7 +58,7 @@ func (d *Dashboard) render(c echo.Context, status int, name string, p page) erro
 }
 
 func (d *Dashboard) errorPage(c echo.Context, status int, msg string) error {
-	return d.render(c, status, "error", page{Title: "Error", Error: msg})
+	return d.render(c, status, "error", page{Title: statusTitle(status), Code: status, Message: msg})
 }
 
 // serverError logs the cause and shows a generic page.
@@ -51,14 +66,15 @@ func (d *Dashboard) serverError(c echo.Context, err error) error {
 	log.Printf("dashboard %s %s: %v", c.Request().Method, c.Path(), err)
 	c.Set(csrfKey, nil) // the session may be the problem; render as anonymous
 	var buf bytes.Buffer
-	if t, ok := d.pages["error"]; ok && t.ExecuteTemplate(&buf, "base", page{Title: "Error", Error: "Something went wrong. Try again."}) == nil {
+	p := page{Title: statusTitle(http.StatusInternalServerError), Code: http.StatusInternalServerError, Message: "Try again in a moment.", Shell: "plain", Asset: d.cssVersion}
+	if t, ok := d.pages["error"]; ok && t.ExecuteTemplate(&buf, "base", p) == nil {
 		return c.HTMLBlob(http.StatusInternalServerError, buf.Bytes())
 	}
 	return c.String(http.StatusInternalServerError, "internal error")
 }
 
 func (d *Dashboard) notFound(c echo.Context) error {
-	return d.errorPage(c, http.StatusNotFound, "Not found.")
+	return d.errorPage(c, http.StatusNotFound, "This page doesn't exist, or it belongs to another account.")
 }
 
 func (d *Dashboard) loginForm(c echo.Context) error {
@@ -105,17 +121,19 @@ func (d *Dashboard) logout(c echo.Context) error {
 }
 
 func (d *Dashboard) projects(c echo.Context) error {
-	list, err := d.cfg.Projects.ListProjects(c.Request().Context(), sessionOf(c).UserID)
+	list, err := d.cfg.Projects.ListSummaries(c.Request().Context(), sessionOf(c).UserID)
 	if err != nil {
 		return d.serverError(c, err)
 	}
-	return d.render(c, http.StatusOK, "projects", page{Title: "Projects", Data: list})
+	return d.render(c, http.StatusOK, "projects", page{Title: "Projects", Home: true, Data: list})
 }
 
 type newProjectData struct {
 	Regions    []string
 	Name, Slug string
 	Region     string
+	// SlugTaken marks the slug field invalid after ErrSlugTaken.
+	SlugTaken bool
 }
 
 func (d *Dashboard) newProjectForm(c echo.Context) error {
@@ -132,6 +150,7 @@ func (d *Dashboard) createProject(c echo.Context) error {
 	})
 	switch {
 	case errors.Is(err, project.ErrInvalid), errors.Is(err, project.ErrSlugTaken):
+		form.SlugTaken = errors.Is(err, project.ErrSlugTaken)
 		return d.render(c, http.StatusUnprocessableEntity, "project_new", page{Title: "New project", Error: err.Error(), Data: form})
 	case err != nil:
 		return d.serverError(c, err)
@@ -141,7 +160,15 @@ func (d *Dashboard) createProject(c echo.Context) error {
 
 type projectData struct {
 	Project     *project.Project
-	Deployments []project.Deployment
+	Deployments []project.Deployment // newest first
+}
+
+// Latest is the newest deployment, nil if there is none.
+func (p projectData) Latest() *project.Deployment {
+	if len(p.Deployments) == 0 {
+		return nil
+	}
+	return &p.Deployments[0]
 }
 
 // projectID reads the :id parameter; a malformed id is "not found", the same
@@ -180,9 +207,9 @@ func (d *Dashboard) showProjectWith(c echo.Context, status int, msg string) erro
 	return d.render(c, status, "project", page{Title: p.Name, Error: msg, Data: projectData{Project: p, Deployments: deps}})
 }
 
-// afterDeploy answers a deploy or redeploy: back to the project page, or the
-// same page with the reason it was refused.
-func (d *Dashboard) afterDeploy(c echo.Context, id uuid.UUID, err error) error {
+// afterDeploy answers a deploy or redeploy: back to the project page at the new
+// deployment's row, or the same page with the reason it was refused.
+func (d *Dashboard) afterDeploy(c echo.Context, id uuid.UUID, dep *project.Deployment, err error) error {
 	switch {
 	case errors.Is(err, project.ErrNotFound):
 		return d.notFound(c)
@@ -191,7 +218,7 @@ func (d *Dashboard) afterDeploy(c echo.Context, id uuid.UUID, err error) error {
 	case err != nil:
 		return d.serverError(c, err)
 	}
-	return c.Redirect(http.StatusSeeOther, "/projects/"+id.String())
+	return c.Redirect(http.StatusSeeOther, "/projects/"+id.String()+"#deployment-"+dep.ID.String())
 }
 
 func (d *Dashboard) deploy(c echo.Context) error {
@@ -199,10 +226,10 @@ func (d *Dashboard) deploy(c echo.Context) error {
 	if err != nil {
 		return d.notFound(c)
 	}
-	_, err = d.cfg.Projects.Deploy(c.Request().Context(), sessionOf(c).UserID, id, project.DeployInput{
+	dep, err := d.cfg.Projects.Deploy(c.Request().Context(), sessionOf(c).UserID, id, project.DeployInput{
 		Image: strings.TrimSpace(c.FormValue("image")),
 	})
-	return d.afterDeploy(c, id, err)
+	return d.afterDeploy(c, id, dep, err)
 }
 
 func (d *Dashboard) redeploy(c echo.Context) error {
@@ -210,6 +237,6 @@ func (d *Dashboard) redeploy(c echo.Context) error {
 	if err != nil {
 		return d.notFound(c)
 	}
-	_, err = d.cfg.Projects.Redeploy(c.Request().Context(), sessionOf(c).UserID, id)
-	return d.afterDeploy(c, id, err)
+	dep, err := d.cfg.Projects.Redeploy(c.Request().Context(), sessionOf(c).UserID, id)
+	return d.afterDeploy(c, id, dep, err)
 }
