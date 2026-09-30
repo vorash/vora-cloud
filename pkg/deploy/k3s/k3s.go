@@ -210,7 +210,7 @@ func envHash(env map[string]string) string {
 	sort.Strings(keys)
 	h := sha256.New()
 	for _, k := range keys {
-		fmt.Fprintf(h, "%d:%s=%d:%s\n", len(k), k, len(env[k]), env[k])
+		_, _ = fmt.Fprintf(h, "%d:%s=%d:%s\n", len(k), k, len(env[k]), env[k])
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }

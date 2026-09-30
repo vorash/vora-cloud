@@ -123,5 +123,5 @@ func (s *JWTService) IsTokenExpired(claims *JWTClaims) bool {
 	if claims.ExpiresAt == nil {
 		return true
 	}
-	return claims.ExpiresAt.Time.Before(time.Now())
+	return claims.ExpiresAt.Before(time.Now())
 }

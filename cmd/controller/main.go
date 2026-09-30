@@ -53,7 +53,11 @@ func main() {
 		log.Fatal("DATABASE_URL environment variable is required")
 	}
 
-	db, err := database.New(cfg.DBConnection)
+	maxConns, minConns, err := config.ParsePoolSize(cfg.DBMaxConns, cfg.DBMinConns)
+	if err != nil {
+		log.Fatal(err)
+	}
+	db, err := database.New(cfg.DBConnection, maxConns, minConns)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

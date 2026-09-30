@@ -71,7 +71,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to server: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := pb.NewControlPlaneClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

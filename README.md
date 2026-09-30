@@ -47,11 +47,14 @@ The controller reads its configuration from the environment:
 | `INGRESS_CLASS` | Ingress class for apps (default `traefik`) |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Required, at least 32 characters |
+| `DB_MAX_CONNS`, `DB_MIN_CONNS` | Size of the service's connection pool (default `25` and `5`). Behind Supabase's session pooler each connection holds a backend connection, and the pooler's pool size (Supabase dashboard, Database settings) is a plan limit: keep `DB_MAX_CONNS` below it (migrations use the direct connection and do not count against it), or connects fail with "max clients reached" |
 | `SECRETS_KEY` | Required. Base64 of 32 random bytes (`openssl rand -base64 32`); encrypts project environment variables. Losing it makes stored variables unreadable |
 | `APPS_DOMAIN` | Base domain of app hosts: a project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. Empty leaves apps unexposed |
 | `ALLOW_REGISTRATION` | `true` lets anyone call `POST /auth/register`. Off by default: an admin API key creates users with `POST /admin/users` |
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
 | `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |
+
+The service reaches the database only with its own Postgres role; it never uses Supabase's API keys, and the dashboard will call this API, not Supabase's. So the project's **Data API (PostgREST) can be turned off** in the Supabase dashboard; with it off, a table that lacks row level security is no longer readable by `anon` through the API, which is a second layer behind migration 003 and the migration test.
 
 With Supabase there are two endpoints, and each has one job. The running service uses the **session pooler** (`aws-1-eu-west-1.pooler.supabase.com:5432`, user `postgres.<ref>`, `sslmode=require`), which is reachable over IPv4. Migrations use the **direct connection** (`db.<ref>.supabase.co`), which is IPv6 only, so run `make migrate-up` from a machine that has IPv6, not from the staging guest.
 
@@ -168,3 +171,7 @@ Code layout:
 | `pkg/auth`, `pkg/database` | Users, API keys and JWT, on PostgreSQL |
 | `cmd/controller`, `cmd/cli` | The server and the command-line client |
 | `docs/adr` | Architecture decision records |
+
+## License
+
+Proprietary, all rights reserved (see [LICENSE](LICENSE)). This is a closed project under vora.sh.
