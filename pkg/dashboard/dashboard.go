@@ -146,6 +146,8 @@ func (d *Dashboard) Register(e *echo.Echo) {
 	e.GET("/projects/:id", d.showProject, private...)
 	e.POST("/projects/:id/deployments", d.deploy, private...)
 	e.POST("/projects/:id/redeploy", d.redeploy, private...)
+
+	d.brandNotFound(e)
 }
 
 // assetTypes lists what /assets serves, with explicit types because the
