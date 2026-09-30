@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/vorash/vora-cloud/pkg/utils"
@@ -14,6 +15,9 @@ type Config struct {
 	Regions      string
 	IngressClass string
 	DBConnection string
+	// DBMaxConns and DBMinConns size the service's connection pool; see ParsePoolSize.
+	DBMaxConns   string
+	DBMinConns   string
 	BootstrapKey string
 	JWTSecret    string
 	// SecretsKey is a base64 32 byte key that encrypts project env vars.
@@ -29,6 +33,8 @@ func LoadConfig() *Config {
 		Regions:      utils.GetEnv("REGIONS", ""),
 		IngressClass: utils.GetEnv("INGRESS_CLASS", "traefik"),
 		DBConnection: utils.GetEnv("DATABASE_URL", "postgres://postgres@localhost:5432/control-plane"),
+		DBMaxConns:   utils.GetEnv("DB_MAX_CONNS", "25"),
+		DBMinConns:   utils.GetEnv("DB_MIN_CONNS", "5"),
 		BootstrapKey: utils.GetEnv("BOOTSTRAP_KEY", ""),
 		JWTSecret:    utils.GetEnv("JWT_SECRET", ""),
 		SecretsKey:   utils.GetEnv("SECRETS_KEY", ""),
@@ -57,4 +63,23 @@ func ParseRegions(raw string) (map[string]string, error) {
 		regions[id] = path
 	}
 	return regions, nil
+}
+
+// ParsePoolSize reads DB_MAX_CONNS and DB_MIN_CONNS. Behind Supabase's session
+// pooler every connection holds a backend connection, and the pooler's pool
+// size is a plan limit, so a pool larger than it fails at connect time with
+// "max clients reached". It rejects values that cannot work.
+func ParsePoolSize(rawMax, rawMin string) (maxConns, minConns int32, err error) {
+	maxN, err := strconv.ParseInt(strings.TrimSpace(rawMax), 10, 32)
+	if err != nil || maxN < 1 {
+		return 0, 0, fmt.Errorf("DB_MAX_CONNS must be a whole number of at least 1, got %q", rawMax)
+	}
+	minN, err := strconv.ParseInt(strings.TrimSpace(rawMin), 10, 32)
+	if err != nil || minN < 0 {
+		return 0, 0, fmt.Errorf("DB_MIN_CONNS must be a whole number of at least 0, got %q", rawMin)
+	}
+	if minN > maxN {
+		return 0, 0, fmt.Errorf("DB_MIN_CONNS (%d) is larger than DB_MAX_CONNS (%d)", minN, maxN)
+	}
+	return int32(maxN), int32(minN), nil
 }

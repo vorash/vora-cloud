@@ -31,3 +31,31 @@ func TestParseRegionsRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePoolSize(t *testing.T) {
+	max, min, err := ParsePoolSize(" 10 ", "2")
+	if err != nil || max != 10 || min != 2 {
+		t.Errorf("got %d %d %v", max, min, err)
+	}
+	if _, _, err := ParsePoolSize("25", "0"); err != nil {
+		t.Errorf("a pool that opens no idle connections is valid: %v", err)
+	}
+}
+
+// A pool that cannot work must stop startup, not surface later as failed
+// queries or as "max clients reached" from the pooler.
+func TestParsePoolSizeRejects(t *testing.T) {
+	for name, c := range map[string][2]string{
+		"zero max":       {"0", "0"},
+		"negative max":   {"-1", "0"},
+		"not a number":   {"many", "5"},
+		"empty max":      {"", "5"},
+		"negative min":   {"10", "-1"},
+		"min above max":  {"5", "10"},
+		"min not number": {"10", "x"},
+	} {
+		if _, _, err := ParsePoolSize(c[0], c[1]); err == nil {
+			t.Errorf("%s: accepted %v", name, c)
+		}
+	}
+}

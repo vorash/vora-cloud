@@ -12,15 +12,15 @@ type DB struct {
 	*pgxpool.Pool
 }
 
-// New creates a new database connection pool
-func New(connectionString string) (*DB, error) {
+// New creates a new database connection pool of at most maxConns connections
+func New(connectionString string, maxConns, minConns int32) (*DB, error) {
 	config, err := pgxpool.ParseConfig(connectionString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	config.MaxConns = 25
-	config.MinConns = 5
+	config.MaxConns = maxConns
+	config.MinConns = minConns
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
