@@ -26,10 +26,11 @@ const (
 
 // secureHeaders applies to every dashboard response. The pages use no
 // scripts, so the policy forbids them, along with framing and third parties.
+// The fonts and the logo come from this origin, and nothing else is allowed.
 func (d *Dashboard) secureHeaders(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		h := c.Response().Header()
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		// Not "no-referrer": the Fetch spec then makes browsers send "Origin: null"
@@ -65,7 +66,7 @@ func (d *Dashboard) sameOrigin(c echo.Context) bool {
 func (d *Dashboard) originCheck(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if !d.sameOrigin(c) {
-			return d.errorPage(c, http.StatusForbidden, "Request refused: it did not come from this site.")
+			return d.errorPage(c, http.StatusForbidden, "The request did not come from this site.")
 		}
 		return next(c)
 	}
@@ -128,10 +129,10 @@ func (d *Dashboard) requireSession(next echo.HandlerFunc) echo.HandlerFunc {
 		csrf := d.csrfFor(hash)
 		if c.Request().Method != http.MethodGet {
 			if !d.sameOrigin(c) {
-				return d.errorPage(c, http.StatusForbidden, "Request refused: it did not come from this site.")
+				return d.errorPage(c, http.StatusForbidden, "The request did not come from this site.")
 			}
 			if !hmac.Equal([]byte(c.FormValue("csrf")), []byte(csrf)) {
-				return d.errorPage(c, http.StatusForbidden, "Request refused: the form has expired. Reload the page and try again.")
+				return d.errorPage(c, http.StatusForbidden, "The form has expired. Reload the page and try again.")
 			}
 		}
 		c.Set(sessionKey, sess)

@@ -1,16 +1,17 @@
 {{define "content"}}
-<h1>New project</h1>
-<form method="post" action="/projects">
+<div class="page-head"><div><h1 class="page-title">New project</h1><p class="page-sub">A project is one app with its own address.</p></div></div>
+<form class="panel form" method="post" action="/projects">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <label for="name">Name</label>
-  <input id="name" name="name" value="{{.Data.Name}}" required>
-  <label for="slug">Slug</label>
-  <input id="slug" name="slug" value="{{.Data.Slug}}" pattern="[a-z0-9]([\-a-z0-9]*[a-z0-9])?" maxlength="61" required aria-describedby="slug-help">
-  <p id="slug-help" class="muted">Lowercase letters, digits and dashes. It names the app's namespace and address, and is unique across all users.</p>
-  <label for="region">Region</label>
-  <select id="region" name="region">
-    {{$sel := .Data.Region}}{{range .Data.Regions}}<option value="{{.}}"{{if eq . $sel}} selected{{end}}>{{.}}</option>{{end}}
-  </select>
-  <p><button type="submit">Create project</button></p>
+  <div class="panel-body">
+    <div class="field"><label class="label" for="name">Name</label>
+      <input class="input" id="name" name="name" value="{{.Data.Name}}" required></div>
+    <div class="field"><label class="label" for="slug">Slug</label>
+      <input class="input mono" id="slug" name="slug" value="{{.Data.Slug}}" pattern="[a-z0-9]([\-a-z0-9]*[a-z0-9])?" maxlength="61" required aria-describedby="slug-help"{{if .Data.SlugTaken}} aria-invalid="true"{{end}}>
+      <p class="help" id="slug-help">Lowercase letters, digits and dashes. It names the app's namespace and address, and is unique across all users.</p></div>
+    <fieldset class="field"><legend class="label">Region</legend>
+      <div class="choices">{{$sel := .Data.Region}}{{range $i, $r := .Data.Regions}}<label class="choice"><input type="radio" name="region" value="{{$r}}"{{if or (eq $r $sel) (and (eq $sel "") (eq $i 0))}} checked{{end}} required><span class="choice-body"><span class="mono">{{$r}}</span></span></label>{{end}}</div>
+    </fieldset>
+  </div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Create project</button><a class="btn btn-quiet" href="/">Cancel</a></div>
 </form>
 {{end}}

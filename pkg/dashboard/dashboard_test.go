@@ -75,6 +75,7 @@ func (fakeUsers) AuthenticateUser(_ context.Context, email, password string) (*d
 
 type env struct {
 	e        *echo.Echo
+	dash     *Dashboard
 	sessions *fakeSessions
 	projects *project.Service
 }
@@ -101,7 +102,7 @@ func newEnv(t *testing.T) *env {
 	}
 	e := echo.New()
 	d.Register(e)
-	return &env{e: e, sessions: ss, projects: svc}
+	return &env{e: e, dash: d, sessions: ss, projects: svc}
 }
 
 type resp struct {
@@ -308,8 +309,8 @@ func TestDeployFromTheProjectPage(t *testing.T) {
 	if r := v.send("POST", page+"/redeploy", url.Values{"csrf": {tok}}, c, nil); r.code != http.StatusUnprocessableEntity || !strings.Contains(r.body, "no deployment") {
 		t.Errorf("redeploy before any deploy: %d %s", r.code, r.body)
 	}
-	if r := v.send("POST", page+"/deployments", url.Values{"csrf": {tok}, "image": {"reg/web:1"}}, c, nil); r.code != http.StatusSeeOther || r.header.Get("Location") != page {
-		t.Fatalf("deploy: %d", r.code)
+	if r := v.send("POST", page+"/deployments", url.Values{"csrf": {tok}, "image": {"reg/web:1"}}, c, nil); r.code != http.StatusSeeOther || !strings.HasPrefix(r.header.Get("Location"), page+"#deployment-") {
+		t.Fatalf("deploy: %d to %q", r.code, r.header.Get("Location"))
 	}
 	body := v.send("GET", page, nil, c, nil).body
 	for _, want := range []string{"deploying", "reg/web:1", "https://web.eu.cloud.example.com"} {

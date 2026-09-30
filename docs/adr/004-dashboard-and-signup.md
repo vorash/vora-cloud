@@ -68,7 +68,13 @@ node.
   middleware; a group would turn each unknown URL into a redirect to sign-in.
   Request bodies are limited to 64 KB.
 - No client-side interactivity beyond forms and links; live status needs a
-  page reload until a later slice adds server-sent events.
+  page reload until a later slice adds server-sent events. Motion is CSS only
+  and off under `prefers-reduced-motion`.
+- The policy also allows the origin's own fonts and images
+  (`font-src 'self'; img-src 'self'`), and nothing else: the stylesheet, two
+  fonts and the logo are embedded in the binary and served from `/assets/`.
+  No `data:` images, no inline styles. The fonts carry licences that limit
+  where the binary may go (see the README).
 - The dashboard's handlers use the same `project.Service` as REST and gRPC, so
   the ownership rule is not duplicated.
 - The dashboard is its own package (`pkg/dashboard`) with its own session table

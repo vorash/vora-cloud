@@ -5,12 +5,15 @@ package dashboard
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -24,7 +27,10 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
-//go:embed assets/app.css
+// The stylesheet, the two self-hosted fonts (with their licences) and the
+// brand SVGs. Only the types in assetTypes are served.
+//
+//go:embed assets
 var assetFS embed.FS
 
 // SessionStore keeps sessions by the hash of their token.
@@ -55,6 +61,8 @@ type Config struct {
 	CSRFKey []byte
 	// Limiter limits sign-in attempts per email.
 	Limiter LoginLimiter
+	// Now is the clock behind "3 hours ago"; nil means time.Now.
+	Now func() time.Time
 }
 
 const sessionLifetime = 12 * time.Hour
@@ -63,6 +71,10 @@ const sessionLifetime = 12 * time.Hour
 type Dashboard struct {
 	cfg   Config
 	pages map[string]*template.Template
+	now   func() time.Time
+	// cssVersion is part of the stylesheet's URL, so a new build is fetched at
+	// once and an unchanged one is cached for a year.
+	cssVersion string
 }
 
 func New(cfg Config) (*Dashboard, error) {
@@ -73,23 +85,33 @@ func New(cfg Config) (*Dashboard, error) {
 		return nil, errors.New("dashboard: a sign-in limiter is required")
 	}
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
+	css, err := assetFS.ReadFile("assets/app.css")
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(css)
+	d := &Dashboard{cfg: cfg, now: cfg.Now, cssVersion: hex.EncodeToString(sum[:4])}
+	if d.now == nil {
+		d.now = time.Now
+	}
 	pages := map[string]*template.Template{}
 	names, err := fs.Glob(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
-	for _, path := range names {
-		name := strings.TrimSuffix(strings.TrimPrefix(path, "templates/"), ".html")
+	for _, file := range names {
+		name := strings.TrimSuffix(strings.TrimPrefix(file, "templates/"), ".html")
 		if name == "base" {
 			continue
 		}
-		t, err := template.New(name).ParseFS(templateFS, "templates/base.html", path)
+		t, err := template.New(name).Funcs(d.funcs()).ParseFS(templateFS, "templates/base.html", file)
 		if err != nil {
-			return nil, fmt.Errorf("dashboard: parse %s: %w", path, err)
+			return nil, fmt.Errorf("dashboard: parse %s: %w", file, err)
 		}
 		pages[name] = t
 	}
-	return &Dashboard{cfg: cfg, pages: pages}, nil
+	d.pages = pages
+	return d, nil
 }
 
 // LoginLimiter spends one sign-in attempt for an account. It is shared with
@@ -113,7 +135,7 @@ func (d *Dashboard) Register(e *echo.Echo) {
 	private := append(append([]echo.MiddlewareFunc{}, public...), d.requireSession)
 	signIn := append(append([]echo.MiddlewareFunc{}, public...), d.originCheck)
 
-	e.GET("/assets/app.css", d.stylesheet, d.secureHeaders)
+	e.GET("/assets/*", d.asset, d.secureHeaders)
 	e.GET("/login", d.loginForm, public...)
 	e.POST("/login", d.login, signIn...)
 
@@ -126,11 +148,31 @@ func (d *Dashboard) Register(e *echo.Echo) {
 	e.POST("/projects/:id/redeploy", d.redeploy, private...)
 }
 
-func (d *Dashboard) stylesheet(c echo.Context) error {
-	css, err := assetFS.ReadFile("assets/app.css")
-	if err != nil {
-		return err
+// assetTypes lists what /assets serves, with explicit types because the
+// responses carry nosniff. The embedded licence texts are not served.
+var assetTypes = map[string]string{
+	".css":   "text/css; charset=utf-8",
+	".woff2": "font/woff2",
+	".svg":   "image/svg+xml",
+}
+
+func (d *Dashboard) asset(c echo.Context) error {
+	name := c.Param("*")
+	ctype, ok := assetTypes[path.Ext(name)]
+	if !ok {
+		return echo.ErrNotFound
 	}
-	c.Response().Header().Set("Cache-Control", "public, max-age=3600")
-	return c.Blob(http.StatusOK, "text/css; charset=utf-8", css)
+	data, err := assetFS.ReadFile("assets/" + name) // rejects "..", absolute and directory paths
+	if err != nil {
+		return echo.ErrNotFound
+	}
+	cache := "public, max-age=86400"
+	if name == "app.css" {
+		cache = "no-cache"
+		if c.QueryParam("v") == d.cssVersion {
+			cache = "public, max-age=31536000, immutable"
+		}
+	}
+	c.Response().Header().Set("Cache-Control", cache)
+	return c.Blob(http.StatusOK, ctype, data)
 }
