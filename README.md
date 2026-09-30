@@ -166,3 +166,7 @@ Code layout:
 | `pkg/auth`, `pkg/database` | Users, API keys and JWT, on PostgreSQL |
 | `cmd/controller`, `cmd/cli` | The server and the command-line client |
 | `docs/adr` | Architecture decision records |
+
+## License
+
+Proprietary, all rights reserved (see [LICENSE](LICENSE)). This is a closed project under vora.sh.
