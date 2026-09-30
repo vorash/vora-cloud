@@ -84,3 +84,28 @@ func (s *Server) jwtOnlyMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		return next(c)
 	}
 }
+
+// userOnlyMiddleware requires the caller to be a user (through a JWT or a
+// user's API key). An admin key has no user, so it owns no projects.
+func (s *Server) userOnlyMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if _, ok := currentUser(c); !ok {
+			return c.JSON(http.StatusForbidden, map[string]string{
+				"error": "this endpoint needs a user account",
+			})
+		}
+		return next(c)
+	}
+}
+
+// adminKeyOnlyMiddleware requires an API key that belongs to no user.
+func (s *Server) adminKeyOnlyMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if _, isUser := currentUser(c); isUser || c.Get(AuthTypeKey) != "api_key" {
+			return c.JSON(http.StatusForbidden, map[string]string{
+				"error": "this endpoint needs an admin API key",
+			})
+		}
+		return next(c)
+	}
+}

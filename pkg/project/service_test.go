@@ -1,0 +1,386 @@
+package project_test
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/vorash/vora-cloud/pkg/deploy"
+	. "github.com/vorash/vora-cloud/pkg/project"
+	"github.com/vorash/vora-cloud/pkg/project/projecttest"
+	"github.com/vorash/vora-cloud/pkg/secrets"
+)
+
+// fakeDeployer records what the cluster was asked to do.
+type fakeDeployer struct {
+	deployed        []deploy.Spec
+	deletedProjects []string
+	deployErr       error
+	onDeploy        func() // runs inside Deploy, before it returns
+	deleteErr       error
+	status          deploy.Status
+}
+
+func (f *fakeDeployer) Deploy(_ context.Context, s deploy.Spec) error {
+	f.deployed = append(f.deployed, s)
+	if f.onDeploy != nil {
+		f.onDeploy()
+	}
+	return f.deployErr
+}
+func (f *fakeDeployer) Status(context.Context, string, string) (deploy.Status, error) {
+	return f.status, nil
+}
+func (f *fakeDeployer) Delete(context.Context, string, string) error { return nil }
+func (f *fakeDeployer) DeleteProject(_ context.Context, p string) error {
+	f.deletedProjects = append(f.deletedProjects, p)
+	return f.deleteErr
+}
+func (f *fakeDeployer) Health(context.Context) error { return nil }
+
+type env struct {
+	svc   *Service
+	store *projecttest.MemStore
+	eu    *fakeDeployer
+	alice uuid.UUID
+	bob   uuid.UUID
+}
+
+func newEnv(t *testing.T) *env {
+	t.Helper()
+	eu := &fakeDeployer{}
+	reg, err := deploy.NewRegistry(map[string]deploy.Deployer{"eu": eu})
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := secrets.New(bytes.Repeat([]byte{9}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := projecttest.New()
+	svc := NewService(st, reg, box, "cloud.example.com")
+	return &env{svc: svc, store: st, eu: eu, alice: uuid.New(), bob: uuid.New()}
+}
+
+var ctx = context.Background()
+
+func (e *env) project(t *testing.T, owner uuid.UUID, slug string) *Project {
+	t.Helper()
+	p, err := e.svc.CreateProject(ctx, owner, CreateInput{Name: slug, Slug: slug, Region: "eu"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// deploy deploys an image as alice and fails the test if the call errors.
+func (e *env) deploy(t *testing.T, p *Project, image string) *Deployment {
+	t.Helper()
+	d, err := e.svc.Deploy(ctx, e.alice, p.ID, DeployInput{Image: image})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+func TestCreateProjectAppliesDefaults(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	if p.Port != 80 || p.Replicas != 1 || p.CPUMillis != 250 || p.MemoryMiB != 256 || p.DefaultBranch != "main" {
+		t.Errorf("defaults not applied: %+v", p)
+	}
+}
+
+func TestCreateProjectRejects(t *testing.T) {
+	e := newEnv(t)
+	e.project(t, e.alice, "taken")
+	cases := map[string]struct {
+		in   CreateInput
+		want error
+	}{
+		"no name":         {CreateInput{Slug: "a", Region: "eu"}, ErrInvalid},
+		"uppercase slug":  {CreateInput{Name: "x", Slug: "Web", Region: "eu"}, ErrInvalid},
+		"slug too long":   {CreateInput{Name: "x", Slug: strings.Repeat("a", 62), Region: "eu"}, ErrInvalid},
+		"unknown region":  {CreateInput{Name: "x", Slug: "a", Region: "mars"}, ErrInvalid},
+		"bad port":        {CreateInput{Name: "x", Slug: "a", Region: "eu", Port: 70000}, ErrInvalid},
+		"slug of another": {CreateInput{Name: "x", Slug: "taken", Region: "eu"}, ErrSlugTaken},
+	}
+	for name, c := range cases {
+		if _, err := e.svc.CreateProject(ctx, e.bob, c.in); !errors.Is(err, c.want) {
+			t.Errorf("%s: got %v, want %v", name, err, c.want)
+		}
+	}
+}
+
+// The rule the API stands on: a user must not be able to see or change
+// anything of another user's project. Each call returns "not found" rather
+// than "forbidden", so ids cannot be probed. If the ownership check in
+// Service.owned goes away, every line here fails.
+func TestAnotherUserSeesNothingOfAProject(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	d, err := e.svc.Deploy(ctx, e.alice, p.ID, DeployInput{Image: "reg/web:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	calls := map[string]func() error{
+		"get project":      func() error { _, err := e.svc.GetProject(ctx, e.bob, p.ID); return err },
+		"delete project":   func() error { return e.svc.DeleteProject(ctx, e.bob, p.ID) },
+		"list deployments": func() error { _, err := e.svc.ListDeployments(ctx, e.bob, p.ID); return err },
+		"get deployment":   func() error { _, err := e.svc.GetDeployment(ctx, e.bob, d.ID); return err },
+		"deploy":           func() error { _, err := e.svc.Deploy(ctx, e.bob, p.ID, DeployInput{Image: "evil:1"}); return err },
+		"redeploy":         func() error { _, err := e.svc.Redeploy(ctx, e.bob, p.ID); return err },
+		"rollback":         func() error { _, err := e.svc.Rollback(ctx, e.bob, p.ID, d.ID); return err },
+		"set env":          func() error { return e.svc.SetEnv(ctx, e.bob, p.ID, "K", "v") },
+		"list env":         func() error { _, err := e.svc.EnvNames(ctx, e.bob, p.ID); return err },
+		"delete env":       func() error { return e.svc.DeleteEnv(ctx, e.bob, p.ID, "K") },
+	}
+	for name, call := range calls {
+		if err := call(); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s as another user: got %v, want ErrNotFound", name, err)
+		}
+	}
+	if len(e.eu.deployed) != 1 || len(e.eu.deletedProjects) != 0 {
+		t.Errorf("another user reached the cluster: deployed %d, deleted %v", len(e.eu.deployed), e.eu.deletedProjects)
+	}
+	if list, _ := e.svc.ListProjects(ctx, e.bob); len(list) != 0 {
+		t.Errorf("another user lists %d projects", len(list))
+	}
+}
+
+func TestRollbackRejectsADeploymentOfAnotherProject(t *testing.T) {
+	e := newEnv(t)
+	mine := e.project(t, e.alice, "mine")
+	other := e.project(t, e.alice, "other") // the same owner, so only the project check can stop it
+	od, _ := e.svc.Deploy(ctx, e.alice, other.ID, DeployInput{Image: "reg/other:1"})
+	e.eu.status = deploy.Status{State: deploy.StateReady}
+	e.svc.Reconcile(ctx)
+
+	if _, err := e.svc.Rollback(ctx, e.alice, mine.ID, od.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("got %v, want ErrNotFound", err)
+	}
+}
+
+// Done when: deploying an existing image creates a deployment that reaches ready.
+func TestDeployReachesReadyWhenTheRolloutFinishes(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+
+	d, err := e.svc.Deploy(ctx, e.alice, p.ID, DeployInput{Image: "reg/web:1", CommitSHA: "abc", Ref: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Status != StatusDeploying || d.URL != "https://web.eu.cloud.example.com" {
+		t.Fatalf("after deploy: %+v", d)
+	}
+	spec := e.eu.deployed[0]
+	if spec.Project != "web" || spec.Image != "reg/web:1" || spec.Host != "web.eu.cloud.example.com" || !spec.TLS {
+		t.Errorf("cluster got %+v", spec)
+	}
+
+	e.eu.status = deploy.Status{State: deploy.StateRollingOut}
+	e.svc.Reconcile(ctx)
+	if got, _ := e.svc.GetDeployment(ctx, e.alice, d.ID); got.Status != StatusDeploying {
+		t.Fatalf("mid rollout: %s", got.Status)
+	}
+
+	e.eu.status = deploy.Status{State: deploy.StateReady}
+	e.svc.Reconcile(ctx)
+	if got, _ := e.svc.GetDeployment(ctx, e.alice, d.ID); got.Status != StatusReady {
+		t.Errorf("after rollout: %s, want ready", got.Status)
+	}
+}
+
+func TestFailedRolloutIsRecordedWithItsReason(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	d := e.deploy(t, p, "reg/web:1")
+
+	e.eu.status = deploy.Status{State: deploy.StateFailed, Message: "ImagePullBackOff"}
+	e.svc.Reconcile(ctx)
+	got, _ := e.svc.GetDeployment(ctx, e.alice, d.ID)
+	if got.Status != StatusFailed || got.Error != "ImagePullBackOff" {
+		t.Errorf("got %s %q", got.Status, got.Error)
+	}
+}
+
+func TestStuckRolloutTimesOut(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	e.store.Clock = time.Now().Add(-time.Hour) // the deployment started long ago
+	d := e.deploy(t, p, "reg/web:1")
+
+	e.eu.status = deploy.Status{State: deploy.StatePending}
+	e.svc.Reconcile(ctx)
+	got, _ := e.svc.GetDeployment(ctx, e.alice, d.ID)
+	if got.Status != StatusFailed || !strings.Contains(got.Error, "did not finish") {
+		t.Errorf("got %s %q", got.Status, got.Error)
+	}
+}
+
+func TestClusterErrorLeavesAFailedRecord(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	e.eu.deployErr = errors.New("apiserver down")
+
+	d, err := e.svc.Deploy(ctx, e.alice, p.ID, DeployInput{Image: "reg/web:1"})
+	if err != nil || d.Status != StatusFailed || d.Error != "apiserver down" {
+		t.Errorf("got %+v, %v", d, err)
+	}
+	if deps, _ := e.svc.ListDeployments(ctx, e.alice, p.ID); len(deps) != 1 || deps[0].Status != StatusFailed {
+		t.Errorf("stored: %+v", deps)
+	}
+}
+
+// The cluster runs only the newest spec, so an older unfinished deployment
+// must not be reported ready for a rollout that never carried its image.
+func TestANewDeploymentSupersedesTheUnfinishedOne(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	first := e.deploy(t, p, "reg/web:1")
+	second := e.deploy(t, p, "reg/web:2")
+
+	got, _ := e.svc.GetDeployment(ctx, e.alice, first.ID)
+	if got.Status != StatusFailed || !strings.Contains(got.Error, "superseded") {
+		t.Errorf("first: %s %q", got.Status, got.Error)
+	}
+	if second.Status != StatusDeploying {
+		t.Errorf("second: %s", second.Status)
+	}
+}
+
+func TestRedeployRunsTheLatestImageAgain(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	if _, err := e.svc.Redeploy(ctx, e.alice, p.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("redeploy of a project that never deployed: %v", err)
+	}
+	e.deploy(t, p, "reg/web:1")
+	e.deploy(t, p, "reg/web:2")
+	if _, err := e.svc.Redeploy(ctx, e.alice, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.eu.deployed[len(e.eu.deployed)-1].Image; got != "reg/web:2" {
+		t.Errorf("redeployed %s, want reg/web:2", got)
+	}
+}
+
+func TestRollbackDeploysAnEarlierReadyImage(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	e.eu.status = deploy.Status{State: deploy.StateReady}
+	v1, _ := e.svc.Deploy(ctx, e.alice, p.ID, DeployInput{Image: "reg/web:1", CommitSHA: "aaa"})
+	e.svc.Reconcile(ctx)
+	e.deploy(t, p, "reg/web:2")
+	e.svc.Reconcile(ctx)
+
+	d, err := e.svc.Rollback(ctx, e.alice, p.ID, v1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ID == v1.ID || d.Image != "reg/web:1" || d.CommitSHA != "aaa" {
+		t.Errorf("rollback deployment: %+v", d)
+	}
+	if got := e.eu.deployed[len(e.eu.deployed)-1].Image; got != "reg/web:1" {
+		t.Errorf("cluster got %s", got)
+	}
+}
+
+func TestRollbackToAnImageThatNeverRanIsRefused(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	e.eu.deployErr = errors.New("boom")
+	bad := e.deploy(t, p, "reg/web:bad")
+	if _, err := e.svc.Rollback(ctx, e.alice, p.ID, bad.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("got %v, want ErrInvalid", err)
+	}
+}
+
+func TestDeleteProjectTearsDownTheNamespaceFirst(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+
+	e.eu.deleteErr = errors.New("cluster unreachable")
+	if err := e.svc.DeleteProject(ctx, e.alice, p.ID); err == nil {
+		t.Fatal("delete succeeded while the cluster failed")
+	}
+	if _, err := e.svc.GetProject(ctx, e.alice, p.ID); err != nil {
+		t.Errorf("the record must stay so the delete can be retried: %v", err)
+	}
+
+	e.eu.deleteErr = nil
+	if err := e.svc.DeleteProject(ctx, e.alice, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.GetProject(ctx, e.alice, p.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("after delete: %v", err)
+	}
+	if len(e.eu.deletedProjects) != 2 || e.eu.deletedProjects[1] != "web" {
+		t.Errorf("namespace teardown calls: %v", e.eu.deletedProjects)
+	}
+}
+
+func TestEnvIsStoredEncryptedAndReachesTheClusterInTheClear(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	const secret = "postgres://u:hunter2@db/app"
+	if err := e.svc.SetEnv(ctx, e.alice, p.ID, "DATABASE_URL", secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.SetEnv(ctx, e.alice, p.ID, "bad-name", "x"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("invalid name: %v", err)
+	}
+
+	if stored := e.store.Env[p.ID]["DATABASE_URL"]; len(stored) == 0 || bytes.Contains(stored, []byte("hunter2")) {
+		t.Fatalf("stored value is not encrypted: %q", stored)
+	}
+	names, _ := e.svc.EnvNames(ctx, e.alice, p.ID)
+	sort.Strings(names)
+	if len(names) != 1 || names[0] != "DATABASE_URL" {
+		t.Errorf("names: %v", names)
+	}
+
+	e.deploy(t, p, "reg/web:1")
+	if got := e.eu.deployed[0].Env["DATABASE_URL"]; got != secret {
+		t.Errorf("cluster got %q", got)
+	}
+}
+
+// Until the new spec is applied, the cluster reports the old rollout, which
+// may look ready. A deployment whose apply fails must never be marked ready
+// by a reconcile that lands in that window, and must not take the older
+// deployment, which is still the one running, down with it.
+func TestFailedApplyIsNeverReportedReady(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	first := e.deploy(t, p, "reg/web:1")
+
+	e.eu.deployErr = errors.New("admission webhook denied the request")
+	e.eu.onDeploy = func() {
+		e.eu.status = deploy.Status{State: deploy.StateReady} // the old rollout
+		e.svc.Reconcile(ctx)
+	}
+	second, err := e.svc.Deploy(ctx, e.alice, p.ID, DeployInput{Image: "reg/web:2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if second.Status != StatusFailed {
+		t.Errorf("second: %s, want failed", second.Status)
+	}
+	if got, _ := e.svc.GetDeployment(ctx, e.alice, second.ID); got.Status != StatusFailed || got.Error == "" {
+		t.Errorf("stored second: %s %q", got.Status, got.Error)
+	}
+	// The reconcile inside Deploy settled the first one for the old rollout; a
+	// failed apply must not have failed it as "superseded".
+	if got, _ := e.svc.GetDeployment(ctx, e.alice, first.ID); strings.Contains(got.Error, "superseded") {
+		t.Errorf("first was superseded by a deployment that never applied: %s %q", got.Status, got.Error)
+	}
+}

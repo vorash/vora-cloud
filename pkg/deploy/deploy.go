@@ -83,6 +83,9 @@ var (
 // ValidLabel reports whether s can be used as a project or app name.
 func ValidLabel(s string) bool { return labelRe.MatchString(s) }
 
+// ValidEnvName reports whether s can be used as an environment variable name.
+func ValidEnvName(s string) bool { return envKeyRe.MatchString(s) }
+
 // Validate rejects a Spec that could not be applied, before any cluster call.
 func (s Spec) Validate() error {
 	switch {

@@ -16,7 +16,9 @@ import (
 	"github.com/vorash/vora-cloud/pkg/database"
 	"github.com/vorash/vora-cloud/pkg/deploy"
 	"github.com/vorash/vora-cloud/pkg/deploy/k3s"
+	"github.com/vorash/vora-cloud/pkg/project"
 	"github.com/vorash/vora-cloud/pkg/rest"
+	"github.com/vorash/vora-cloud/pkg/secrets"
 	"google.golang.org/grpc"
 )
 
@@ -73,6 +75,18 @@ func main() {
 		log.Fatal("JWT_SECRET must be at least 32 characters long")
 	}
 
+	if cfg.SecretsKey == "" {
+		log.Fatal("SECRETS_KEY environment variable is required (openssl rand -base64 32)")
+	}
+	secretsKey, err := secrets.ParseKey(cfg.SecretsKey)
+	if err != nil {
+		log.Fatalf("SECRETS_KEY: %v", err)
+	}
+	secretsBox, err := secrets.New(secretsKey)
+	if err != nil {
+		log.Fatalf("SECRETS_KEY: %v", err)
+	}
+
 	// Initialize JWT service with token durations
 	jwtService := auth.NewJWTService(
 		cfg.JWTSecret,
@@ -108,6 +122,12 @@ func main() {
 	// Init gRPC service with the region registry
 	appService := api.NewApplicationService(regions)
 
+	// Projects and deployments; the reconciler settles rollouts until shutdown.
+	projectSvc := project.NewService(database.NewProjectRepository(db), regions, secretsBox, cfg.AppsDomain)
+	reconcileCtx, stopReconciler := context.WithCancel(context.Background())
+	defer stopReconciler()
+	go projectSvc.Run(reconcileCtx, 5*time.Second)
+
 	// Create gRPC listener
 	grpcListener, err := net.Listen("tcp", ":"+cfg.GRPCPort)
 	if err != nil {
@@ -119,7 +139,7 @@ func main() {
 	pb.RegisterControlPlaneServer(grpcServer, appService)
 
 	// Create REST server
-	restServer := rest.NewServer(appService, apiKeySvc, userSvc, cfg.HttpPort)
+	restServer := rest.NewServer(appService, projectSvc, apiKeySvc, userSvc, cfg.HttpPort)
 
 	// Start gRPC server
 	go func() {

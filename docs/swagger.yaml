@@ -48,6 +48,29 @@ definitions:
       name:
         type: string
     type: object
+  rest.CreateProjectRequest:
+    properties:
+      cpu_millis:
+        type: integer
+      default_branch:
+        type: string
+      health_path:
+        type: string
+      memory_mib:
+        type: integer
+      name:
+        type: string
+      port:
+        type: integer
+      region:
+        type: string
+      replicas:
+        type: integer
+      repo:
+        type: string
+      slug:
+        type: string
+    type: object
   rest.CreateUserKeyRequest:
     properties:
       name:
@@ -75,6 +98,15 @@ definitions:
         type: string
       success:
         type: boolean
+    type: object
+  rest.DeployImageRequest:
+    properties:
+      commit_sha:
+        type: string
+      image:
+        type: string
+      ref:
+        type: string
     type: object
   rest.DeployRequest:
     properties:
@@ -110,6 +142,40 @@ definitions:
       status:
         type: string
     type: object
+  rest.DeploymentResponse:
+    properties:
+      commit_sha:
+        type: string
+      created_at:
+        type: string
+      error:
+        type: string
+      finished_at:
+        type: string
+      id:
+        type: string
+      image:
+        type: string
+      project_id:
+        type: string
+      ref:
+        type: string
+      region:
+        type: string
+      started_at:
+        type: string
+      status:
+        type: string
+      url:
+        type: string
+    type: object
+  rest.EnvNamesResponse:
+    properties:
+      names:
+        items:
+          type: string
+        type: array
+    type: object
   rest.LoginRequest:
     properties:
       email:
@@ -132,6 +198,33 @@ definitions:
         type: string
       user:
         $ref: '#/definitions/rest.UserInfo'
+    type: object
+  rest.ProjectResponse:
+    properties:
+      cpu_millis:
+        type: integer
+      created_at:
+        type: string
+      default_branch:
+        type: string
+      health_path:
+        type: string
+      id:
+        type: string
+      memory_mib:
+        type: integer
+      name:
+        type: string
+      port:
+        type: integer
+      region:
+        type: string
+      replicas:
+        type: integer
+      repo:
+        type: string
+      slug:
+        type: string
     type: object
   rest.RefreshTokenRequest:
     properties:
@@ -174,6 +267,16 @@ definitions:
       id:
         type: string
       name:
+        type: string
+    type: object
+  rest.RollbackRequest:
+    properties:
+      deployment_id:
+        type: string
+    type: object
+  rest.SetEnvRequest:
+    properties:
+      value:
         type: string
     type: object
   rest.StatusResponse:
@@ -587,6 +690,33 @@ paths:
       summary: Register a new user
       tags:
       - auth
+  /deployments/{id}:
+    get:
+      parameters:
+      - description: Deployment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.DeploymentResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Get a deployment
+      tags:
+      - deployments
   /health:
     get:
       consumes:
@@ -604,6 +734,378 @@ paths:
       summary: Health check
       tags:
       - system
+  /projects:
+    get:
+      description: List the caller's projects
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/rest.ProjectResponse'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: List projects
+      tags:
+      - projects
+    post:
+      consumes:
+      - application/json
+      description: Create a project owned by the caller. The slug names the project's
+        namespace and host, so it is unique across all users.
+      parameters:
+      - description: Create Project Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/rest.CreateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/rest.ProjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Create a project
+      tags:
+      - projects
+  /projects/{id}:
+    delete:
+      description: Tear down the project's namespace in its region, then delete the
+        project and its deployments
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Delete a project
+      tags:
+      - projects
+    get:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.ProjectResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Get a project
+      tags:
+      - projects
+  /projects/{id}/deployments:
+    get:
+      description: Newest first
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/rest.DeploymentResponse'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: List a project's deployments
+      tags:
+      - deployments
+    post:
+      consumes:
+      - application/json
+      description: Run an existing image for the project as a new deployment. The
+        response is the deployment record; poll it until its status is ready or failed.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Deploy Image Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/rest.DeployImageRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/rest.DeploymentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Deploy an image
+      tags:
+      - deployments
+  /projects/{id}/env:
+    get:
+      description: Values are never returned
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.EnvNamesResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: List environment variable names
+      tags:
+      - projects
+  /projects/{id}/env/{name}:
+    delete:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Variable name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Delete an environment variable
+      tags:
+      - projects
+    put:
+      consumes:
+      - application/json
+      description: Stored encrypted; it applies on the next deployment or redeploy
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Variable name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Set Env Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/rest.SetEnvRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Set an environment variable
+      tags:
+      - projects
+  /projects/{id}/redeploy:
+    post:
+      description: Run the project's latest image again, which also applies changed
+        environment variables
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/rest.DeploymentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Redeploy a project
+      tags:
+      - deployments
+  /projects/{id}/rollback:
+    post:
+      consumes:
+      - application/json
+      description: Deploy the image of an earlier deployment that became ready, as
+        a new deployment
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Rollback Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/rest.RollbackRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/rest.DeploymentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      - ApiKeyAuth: []
+      summary: Roll back to an earlier deployment
+      tags:
+      - deployments
   /user/keys:
     get:
       consumes:

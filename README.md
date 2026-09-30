@@ -47,6 +47,8 @@ The controller reads its configuration from the environment:
 | `INGRESS_CLASS` | Ingress class for apps (default `traefik`) |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Required, at least 32 characters |
+| `SECRETS_KEY` | Required. Base64 of 32 random bytes (`openssl rand -base64 32`); encrypts project environment variables. Losing it makes stored variables unreadable |
+| `APPS_DOMAIN` | Base domain of app hosts: a project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. Empty leaves apps unexposed |
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
 | `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |
 
@@ -96,15 +98,21 @@ Supported `TraefikConfig` fields: `enable`, `host`, `enable_ssl` and `health_che
 
 `StatusResponse.job_status` is one of `pending`, `rolling_out`, `ready`, `failed` or `not_found`. A rollout that makes no progress for five minutes is `failed`.
 
+### Projects and deployments
+
+A project belongs to the user who created it and is visible only to them: another user gets `404` for it, as for an id that does not exist. Its `slug` is unique across all users, because it names the project's namespace (`p-<slug>`) and host. A deployment moves through `queued`, `building`, `pushing`, `deploying` and then `ready` or `failed`; deploying an existing image goes straight from `queued` to `deploying`. A background loop watches `deploying` deployments and marks them `ready` or `failed` from the cluster's rollout status, and after ten minutes without either as `failed`. Deploying again fails any older unfinished deployment of the project as superseded.
+
 ### REST
 
 Served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
 
 | Route | Purpose |
 |-------|---------|
-| `POST /applications` | Deploy |
-| `DELETE /applications/:id` | Delete |
-| `GET /applications/:id/status` | Status |
+| `POST /applications`, `DELETE /applications/:id`, `GET /applications/:id/status` | Deploy, delete and status without a project. Admin API keys only (a key that belongs to no user), because they have no owner |
+| `POST /projects`, `GET /projects`, `GET` and `DELETE /projects/:id` | Create, list, get and delete the caller's projects. Delete tears down the project's namespace first |
+| `GET` and `POST /projects/:id/deployments`, `GET /deployments/:id` | List deployments, deploy an existing image, get one deployment |
+| `POST /projects/:id/redeploy`, `POST /projects/:id/rollback` | Run the latest image again; deploy the image of an earlier ready deployment (`{"deployment_id": ...}`) |
+| `GET /projects/:id/env`, `PUT` and `DELETE /projects/:id/env/:name` | Environment variables. Stored encrypted, values are never returned, applied on the next deploy |
 | `/auth/*` | Register, log in, refresh, log out |
 | `/user/keys`, `/admin/keys` | API keys |
 
@@ -133,6 +141,7 @@ Served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
 ```bash
 make check          # the merge gate: gofmt, go vet, golangci-lint (if installed), tests, build
 make test-envtest    # run the deployer against a real kube-apiserver and etcd (downloads them once)
+make test-database   # run the project store against a migrated PostgreSQL (needs TEST_DATABASE_URL)
 make test-migrations # run the migrations on throwaway PostgreSQL clusters (needs PG_BIN=<dir with initdb> and the migrate CLI)
 make proto          # regenerate the gRPC code after editing controlplane.proto
 make install-tools  # protoc plugins and golangci-lint
@@ -149,6 +158,8 @@ Code layout:
 | `pkg/deploy/k3s` | The Kubernetes implementation (server-side apply with client-go) |
 | `pkg/api` | The gRPC service, on top of the registry |
 | `pkg/rest` | REST handlers and routes |
+| `pkg/project` | Projects, deployments, the deployment state machine, ownership checks and the rollout reconciler |
+| `pkg/secrets` | AES-256-GCM encryption of stored values |
 | `pkg/auth`, `pkg/database` | Users, API keys and JWT, on PostgreSQL |
 | `cmd/controller`, `cmd/cli` | The server and the command-line client |
 | `docs/adr` | Architecture decision records |

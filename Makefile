@@ -84,3 +84,8 @@ test-envtest:
 # Runs the migrations on throwaway PostgreSQL clusters (needs PG_BIN and the migrate CLI).
 test-migrations:
 	@scripts/test-migrations.sh
+
+# Runs the project store against a PostgreSQL that already has the migrations applied.
+test-database:
+	@test -n "$(TEST_DATABASE_URL)" || (echo "set TEST_DATABASE_URL to a migrated database" && exit 1)
+	@TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -tags integration -count=1 ./pkg/database/
