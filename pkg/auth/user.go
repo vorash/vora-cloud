@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +17,8 @@ import (
 
 const (
 	bcryptCost = 12
+	// maxConcurrentChecks bounds simultaneous password checks.
+	maxConcurrentChecks = 4
 )
 
 // UserService user authentication operations
@@ -22,6 +26,9 @@ type UserService struct {
 	userRepo         *database.UserRepository
 	refreshTokenRepo *database.RefreshTokenRepository
 	jwtService       *JWTService
+	// hashSlots caps concurrent bcrypt checks: each takes a core for a while,
+	// and sign-in is reachable without credentials.
+	hashSlots chan struct{}
 }
 
 func NewUserService(
@@ -33,6 +40,7 @@ func NewUserService(
 		userRepo:         userRepo,
 		refreshTokenRepo: refreshTokenRepo,
 		jwtService:       jwtService,
+		hashSlots:        make(chan struct{}, maxConcurrentChecks),
 	}
 }
 
@@ -59,21 +67,55 @@ func (s *UserService) RegisterUser(ctx context.Context, name, email, password st
 	return user, nil
 }
 
-// LoginUser authenticates a user and returns access and refresh tokens
-func (s *UserService) LoginUser(ctx context.Context, email, password string) (accessToken, refreshToken string, user *database.User, err error) {
-	user, err = s.userRepo.GetByEmail(ctx, email)
-	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to get user: %w", err)
-	}
-	if user == nil {
-		return "", "", nil, fmt.Errorf("invalid email or password")
-	}
+// ErrInvalidCredentials is the one answer for an unknown email, a wrong
+// password and an inactive account, so a sign-in form does not reveal which
+// accounts exist.
+var ErrInvalidCredentials = errors.New("invalid email or password")
 
-	if !user.IsActive {
-		return "", "", nil, fmt.Errorf("user account is inactive")
+// dummyHash is compared against when the email is unknown, so an unknown
+// email costs the same time as a wrong password.
+var dummyHash = func() string {
+	h, err := hashPassword("no such user")
+	if err != nil {
+		panic(err)
 	}
-	if !verifyPassword(password, user.PasswordHash) {
-		return "", "", nil, fmt.Errorf("invalid email or password")
+	return h
+}()
+
+// AuthenticateUser checks an email and password and returns the user. Unlike
+// LoginUser it issues no tokens: browser sessions are kept by the dashboard.
+func (s *UserService) AuthenticateUser(ctx context.Context, email, password string) (*database.User, error) {
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	hash := dummyHash
+	if user != nil {
+		hash = user.PasswordHash
+	}
+	select {
+	case s.hashSlots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	matches := verifyPassword(password, hash)
+	<-s.hashSlots
+	if user == nil || !user.IsActive || !matches {
+		return nil, ErrInvalidCredentials
+	}
+	if err := s.userRepo.UpdateLastLogin(ctx, user.ID); err != nil {
+		log.Printf("failed to update last login for user %s: %v", user.ID, err)
+	}
+	return user, nil
+}
+
+// LoginUser authenticates a user and returns access and refresh tokens. A bad
+// email, a wrong password and an inactive account all return
+// ErrInvalidCredentials, so the API does not reveal which accounts exist.
+func (s *UserService) LoginUser(ctx context.Context, email, password string) (accessToken, refreshToken string, user *database.User, err error) {
+	user, err = s.AuthenticateUser(ctx, email, password)
+	if err != nil {
+		return "", "", nil, err
 	}
 
 	accessToken, err = s.jwtService.GenerateAccessToken(user.ID, user.Email, user.Name)
@@ -92,10 +134,6 @@ func (s *UserService) LoginUser(ctx context.Context, email, password string) (ac
 	_, err = s.refreshTokenRepo.Create(ctx, user.ID, tokenHash, expiresAt)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to store refresh token: %w", err)
-	}
-
-	if err := s.userRepo.UpdateLastLogin(ctx, user.ID); err != nil {
-		fmt.Printf("Warning: failed to update last login for user %s: %v\n", user.ID, err)
 	}
 
 	return accessToken, refreshToken, user, nil

@@ -19,6 +19,9 @@ type Config struct {
 	DBMaxConns   string
 	DBMinConns   string
 	BootstrapKey string
+	// PublicURL is the site origin, e.g. https://cloud.vora.sh; the dashboard
+	// accepts writes only from it.
+	PublicURL string
 	// AllowRegistration opens POST /auth/register to anyone. Off by default:
 	// users are created with an admin API key.
 	AllowRegistration bool
@@ -39,6 +42,7 @@ func LoadConfig() *Config {
 		DBMaxConns:        utils.GetEnv("DB_MAX_CONNS", "25"),
 		DBMinConns:        utils.GetEnv("DB_MIN_CONNS", "5"),
 		BootstrapKey:      utils.GetEnv("BOOTSTRAP_KEY", ""),
+		PublicURL:         utils.GetEnv("PUBLIC_URL", ""),
 		AllowRegistration: utils.GetEnv("ALLOW_REGISTRATION", "") == "true",
 		JWTSecret:         utils.GetEnv("JWT_SECRET", ""),
 		SecretsKey:        utils.GetEnv("SECRETS_KEY", ""),

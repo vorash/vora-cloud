@@ -1,0 +1,16 @@
+{{define "content"}}
+<h1>New project</h1>
+<form method="post" action="/projects">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label for="name">Name</label>
+  <input id="name" name="name" value="{{.Data.Name}}" required>
+  <label for="slug">Slug</label>
+  <input id="slug" name="slug" value="{{.Data.Slug}}" pattern="[a-z0-9]([\-a-z0-9]*[a-z0-9])?" maxlength="61" required aria-describedby="slug-help">
+  <p id="slug-help" class="muted">Lowercase letters, digits and dashes. It names the app's namespace and address, and is unique across all users.</p>
+  <label for="region">Region</label>
+  <select id="region" name="region">
+    {{$sel := .Data.Region}}{{range .Data.Regions}}<option value="{{.}}"{{if eq . $sel}} selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <p><button type="submit">Create project</button></p>
+</form>
+{{end}}

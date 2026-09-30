@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -123,5 +124,53 @@ func TestProjectRepository(t *testing.T) {
 	}
 	if err := repo.DeleteProject(ctx, p.ID); !errors.Is(err, project.ErrNotFound) {
 		t.Errorf("second delete: %v", err)
+	}
+}
+
+// A session is found by its token hash while it is valid, and not after it
+// expires, is deleted, or its user is deactivated.
+func TestSessionRepository(t *testing.T) {
+	ctx := context.Background()
+	repo, owner := newTestRepo(t)
+	sessions := NewSessionRepository(repo.db)
+	hash := "hash-" + uuid.NewString()
+
+	if err := sessions.Create(ctx, owner, hash, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := sessions.Get(ctx, hash)
+	if err != nil || got == nil || got.UserID != owner || got.UserName != "test" {
+		t.Fatalf("get: %+v, %v", got, err)
+	}
+	if got, _ := sessions.Get(ctx, "unknown"); got != nil {
+		t.Error("an unknown hash found a session")
+	}
+
+	if _, err := repo.db.Exec(ctx, `UPDATE users SET is_active = false WHERE id = $1`, owner); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := sessions.Get(ctx, hash); got != nil {
+		t.Error("deactivating the user did not end their session")
+	}
+	if _, err := repo.db.Exec(ctx, `UPDATE users SET is_active = true WHERE id = $1`, owner); err != nil {
+		t.Fatal(err)
+	}
+
+	expired := "hash-" + uuid.NewString()
+	if err := sessions.Create(ctx, owner, expired, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := sessions.Get(ctx, expired); got != nil {
+		t.Error("an expired session was found")
+	}
+	if err := sessions.DeleteExpired(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sessions.Delete(ctx, hash); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := sessions.Get(ctx, hash); got != nil {
+		t.Error("a deleted session was found")
 	}
 }

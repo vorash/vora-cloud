@@ -50,6 +50,7 @@ The controller reads its configuration from the environment:
 | `DB_MAX_CONNS`, `DB_MIN_CONNS` | Size of the service's connection pool (default `25` and `5`). Behind Supabase's session pooler each connection holds a backend connection, and the pooler's pool size (Supabase dashboard, Database settings) is a plan limit: keep `DB_MAX_CONNS` below it (migrations use the direct connection and do not count against it), or connects fail with "max clients reached" |
 | `SECRETS_KEY` | Required. Base64 of 32 random bytes (`openssl rand -base64 32`); encrypts project environment variables. Losing it makes stored variables unreadable |
 | `APPS_DOMAIN` | Base domain of app hosts: a project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. Empty leaves apps unexposed |
+| `PUBLIC_URL` | The site's origin, e.g. `https://cloud.vora.sh`. The dashboard accepts form posts only from it; set it whenever a proxy sits in front, or sign-in is refused |
 | `ALLOW_REGISTRATION` | `true` lets anyone call `POST /auth/register`. Off by default: an admin API key creates users with `POST /admin/users` |
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
 | `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |
@@ -105,6 +106,15 @@ Supported `TraefikConfig` fields: `enable`, `host`, `enable_ssl` and `health_che
 
 `StatusResponse.job_status` is one of `pending`, `rolling_out`, `ready`, `failed` or `not_found`. A rollout that makes no progress for five minutes is `failed`.
 
+### Dashboard
+
+The dashboard is served by the same binary at `/` (see [ADR 004](docs/adr/004-dashboard-and-signup.md)): sign in, list and create projects, and on a project's page deploy an image, redeploy, and see its deployments. Set `PUBLIC_URL`. Users cannot sign themselves up: create one with an admin key, then have them sign in.
+
+```bash
+curl -X POST "$URL/api/v1/admin/users" -H "X-API-Key: $ADMIN_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"Ada","email":"ada@example.com","password":"a long password"}'
+```
+
 ### Projects and deployments
 
 A project belongs to the user who created it and is visible only to them: another user gets `404` for it, as for an id that does not exist. Its `slug` is unique across all users, because it names the project's namespace (`p-<slug>`) and host. A deployment moves through `queued`, `building`, `pushing`, `deploying` and then `ready` or `failed`; deploying an existing image goes straight from `queued` to `deploying`. A background loop watches `deploying` deployments and marks them `ready` or `failed` from the cluster's rollout status, and after ten minutes without either as `failed`. Deploying again fails any older unfinished deployment of the project as superseded.
@@ -149,7 +159,7 @@ Served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
 ```bash
 make check          # the merge gate: gofmt, go vet, golangci-lint (if installed), tests, build
 make test-envtest    # run the deployer against a real kube-apiserver and etcd (downloads them once)
-make test-database   # run the project store against a migrated PostgreSQL (needs TEST_DATABASE_URL)
+make test-database   # run the stores (projects, sessions, users) against a migrated PostgreSQL (needs TEST_DATABASE_URL)
 make test-migrations # run the migrations on throwaway PostgreSQL clusters (needs PG_BIN=<dir with initdb> and the migrate CLI)
 make proto          # regenerate the gRPC code after editing controlplane.proto
 make install-tools  # protoc plugins and golangci-lint
@@ -166,6 +176,7 @@ Code layout:
 | `pkg/deploy/k3s` | The Kubernetes implementation (server-side apply with client-go) |
 | `pkg/api` | The gRPC service, on top of the registry |
 | `pkg/rest` | REST handlers and routes |
+| `pkg/dashboard` | The web UI: server-rendered pages, cookie sessions, CSRF and Origin checks |
 | `pkg/project` | Projects, deployments, the deployment state machine, ownership checks and the rollout reconciler |
 | `pkg/secrets` | AES-256-GCM encryption of stored values |
 | `pkg/auth`, `pkg/database` | Users, API keys and JWT, on PostgreSQL |

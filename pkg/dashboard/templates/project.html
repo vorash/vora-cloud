@@ -1,0 +1,35 @@
+{{define "content"}}
+{{$csrf := .CSRF}}
+<h1>{{.Data.Project.Name}}</h1>
+<p class="muted">{{.Data.Project.Slug}} · region {{.Data.Project.Region}}</p>
+
+<form class="actions" method="post" action="/projects/{{.Data.Project.ID}}/deployments">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div><label for="image">Deploy an image</label>
+  <input id="image" name="image" placeholder="registry.example.com/app:1.0" required></div>
+  <button type="submit">Deploy</button>
+</form>
+{{if .Data.Deployments}}
+<form method="post" action="/projects/{{.Data.Project.ID}}/redeploy">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <button type="submit">Redeploy the latest image</button>
+</form>
+{{end}}
+
+<h2>Deployments</h2>
+{{if .Data.Deployments}}
+<table>
+  <thead><tr><th>Status</th><th>Image</th><th>Started</th><th>Address</th><th>Error</th></tr></thead>
+  <tbody>
+  {{range .Data.Deployments}}<tr>
+    <td class="status-{{.Status}}">{{.Status}}</td>
+    <td>{{.Image}}</td>
+    <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+    <td>{{if .URL}}<a href="{{.URL}}" rel="noopener noreferrer">{{.URL}}</a>{{end}}</td>
+    <td>{{.Error}}</td>
+  </tr>{{end}}
+  </tbody>
+</table>
+<p class="muted">Reload the page to see a rollout finish.</p>
+{{else}}<p class="muted">No deployments yet.</p>{{end}}
+{{end}}

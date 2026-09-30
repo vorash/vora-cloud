@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"log"
 	"net"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/vorash/vora-cloud/pkg/api"
 	"github.com/vorash/vora-cloud/pkg/auth"
 	"github.com/vorash/vora-cloud/pkg/config"
+	"github.com/vorash/vora-cloud/pkg/dashboard"
 	"github.com/vorash/vora-cloud/pkg/database"
 	"github.com/vorash/vora-cloud/pkg/deploy"
 	"github.com/vorash/vora-cloud/pkg/deploy/k3s"
@@ -143,9 +145,40 @@ func main() {
 	pb.RegisterControlPlaneServer(grpcServer, appService)
 	pb.RegisterProjectsServer(grpcServer, api.NewProjectsService(projectSvc))
 
+	// One sign-in budget per account, shared by the REST and dashboard sign-in.
+	loginLimiter := auth.NewAttemptLimiter(12*time.Second, 5)
+
 	// Create REST server
 	restServer := rest.NewServer(appService, projectSvc, apiKeySvc, userSvc, cfg.HttpPort,
-		rest.Options{AllowRegistration: cfg.AllowRegistration})
+		rest.Options{AllowRegistration: cfg.AllowRegistration, Limiter: loginLimiter})
+
+	// The dashboard shares the REST server's listener. Its form tokens are keyed
+	// from the JWT secret with a label, so the two uses never share a key.
+	csrfKey := sha256.Sum256([]byte("vora-cloud dashboard csrf\x00" + cfg.JWTSecret))
+	sessions := database.NewSessionRepository(db)
+	dash, err := dashboard.New(dashboard.Config{
+		Sessions: sessions, Users: userSvc, Projects: projectSvc, Regions: regions.Regions(),
+		PublicURL: cfg.PublicURL, CSRFKey: csrfKey[:], Limiter: loginLimiter,
+	})
+	if err != nil {
+		log.Fatalf("Failed to set up the dashboard: %v", err)
+	}
+	dash.Register(restServer.Echo())
+	if cfg.PublicURL == "" {
+		log.Println("PUBLIC_URL is not set: the dashboard derives its origin from each request, which breaks behind a proxy that rewrites the host or scheme")
+	}
+	go func() {
+		for {
+			if err := sessions.DeleteExpired(reconcileCtx); err != nil && reconcileCtx.Err() == nil {
+				log.Printf("Failed to delete expired sessions: %v", err)
+			}
+			select {
+			case <-reconcileCtx.Done():
+				return
+			case <-time.After(time.Hour):
+			}
+		}
+	}()
 
 	// Start gRPC server
 	go func() {
