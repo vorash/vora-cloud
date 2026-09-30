@@ -140,7 +140,8 @@ func main() {
 	pb.RegisterProjectsServer(grpcServer, api.NewProjectsService(projectSvc))
 
 	// Create REST server
-	restServer := rest.NewServer(appService, projectSvc, apiKeySvc, userSvc, cfg.HttpPort)
+	restServer := rest.NewServer(appService, projectSvc, apiKeySvc, userSvc, cfg.HttpPort,
+		rest.Options{AllowRegistration: cfg.AllowRegistration})
 
 	// Start gRPC server
 	go func() {

@@ -15,7 +15,10 @@ type Config struct {
 	IngressClass string
 	DBConnection string
 	BootstrapKey string
-	JWTSecret    string
+	// AllowRegistration opens POST /auth/register to anyone. Off by default:
+	// users are created with an admin API key.
+	AllowRegistration bool
+	JWTSecret         string
 	// SecretsKey is a base64 32 byte key that encrypts project env vars.
 	SecretsKey string
 	// AppsDomain is the base of app hosts: <slug>.<region>.<AppsDomain>.
@@ -24,15 +27,16 @@ type Config struct {
 
 func LoadConfig() *Config {
 	return &Config{
-		GRPCPort:     utils.GetEnv("GRPC_PORT", "50051"),
-		HttpPort:     utils.GetEnv("HTTP_PORT", "5000"),
-		Regions:      utils.GetEnv("REGIONS", ""),
-		IngressClass: utils.GetEnv("INGRESS_CLASS", "traefik"),
-		DBConnection: utils.GetEnv("DATABASE_URL", "postgres://postgres@localhost:5432/control-plane"),
-		BootstrapKey: utils.GetEnv("BOOTSTRAP_KEY", ""),
-		JWTSecret:    utils.GetEnv("JWT_SECRET", ""),
-		SecretsKey:   utils.GetEnv("SECRETS_KEY", ""),
-		AppsDomain:   utils.GetEnv("APPS_DOMAIN", ""),
+		GRPCPort:          utils.GetEnv("GRPC_PORT", "50051"),
+		HttpPort:          utils.GetEnv("HTTP_PORT", "5000"),
+		Regions:           utils.GetEnv("REGIONS", ""),
+		IngressClass:      utils.GetEnv("INGRESS_CLASS", "traefik"),
+		DBConnection:      utils.GetEnv("DATABASE_URL", "postgres://postgres@localhost:5432/control-plane"),
+		BootstrapKey:      utils.GetEnv("BOOTSTRAP_KEY", ""),
+		AllowRegistration: utils.GetEnv("ALLOW_REGISTRATION", "") == "true",
+		JWTSecret:         utils.GetEnv("JWT_SECRET", ""),
+		SecretsKey:        utils.GetEnv("SECRETS_KEY", ""),
+		AppsDomain:        utils.GetEnv("APPS_DOMAIN", ""),
 	}
 }
 

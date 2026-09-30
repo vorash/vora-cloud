@@ -23,8 +23,20 @@ import (
 	_ "github.com/vorash/vora-cloud/docs"
 	"github.com/vorash/vora-cloud/pkg/api"
 	"github.com/vorash/vora-cloud/pkg/auth"
+	"github.com/vorash/vora-cloud/pkg/database"
 	"github.com/vorash/vora-cloud/pkg/project"
 )
+
+// Options are the settings of the REST server that are not services.
+type Options struct {
+	// AllowRegistration opens POST /auth/register to anyone.
+	AllowRegistration bool
+}
+
+// accountCreator creates user accounts.
+type accountCreator interface {
+	RegisterUser(ctx context.Context, name, email, password string) (*database.User, error)
+}
 
 // Server the REST API server
 type Server struct {
@@ -33,12 +45,14 @@ type Server struct {
 	projects       *project.Service
 	authSvc        *auth.APIKeyService
 	userSvc        *auth.UserService
+	accounts       accountCreator
+	opts           Options
 	port           string
 	tracerProvider *sdktrace.TracerProvider
 }
 
 // NewServer creates a new REST API server
-func NewServer(appService *api.ApplicationService, projects *project.Service, authSvc *auth.APIKeyService, userSvc *auth.UserService, port string) *Server {
+func NewServer(appService *api.ApplicationService, projects *project.Service, authSvc *auth.APIKeyService, userSvc *auth.UserService, port string, opts Options) *Server {
 	tp := initTracer()
 
 	e := echo.New()
@@ -55,6 +69,8 @@ func NewServer(appService *api.ApplicationService, projects *project.Service, au
 		projects:       projects,
 		authSvc:        authSvc,
 		userSvc:        userSvc,
+		accounts:       userSvc,
+		opts:           opts,
 		port:           port,
 		tracerProvider: tp,
 	}
@@ -122,6 +138,7 @@ func (s *Server) registerDeployRoutes(v1 *echo.Group) {
 	// Admin operations: only an API key that belongs to no user. Otherwise any
 	// user could mint an ownerless key and use it on the ownerless endpoints.
 	admin := v1.Group("/admin", s.adminKeyOnlyMiddleware)
+	admin.POST("/users", s.adminCreateUser)
 	admin.POST("/keys", s.createAPIKey)
 	admin.GET("/keys", s.listAPIKeys)
 	admin.DELETE("/keys/:id", s.deleteAPIKey)

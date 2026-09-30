@@ -80,15 +80,26 @@ type UserInfo struct {
 
 // register handles POST /api/v1/auth/register
 // @Summary Register a new user
-// @Description Register a new user with name, email and password
+// @Description Register a new user with name, email and password. Off unless ALLOW_REGISTRATION=true; otherwise an admin creates users with POST /admin/users.
 // @Tags auth
 // @Accept json
 // @Produce json
 // @Param request body RegisterRequest true "Register Request"
 // @Success 201 {object} RegisterResponse
 // @Failure 400 {object} map[string]string
+// @Failure 403 {object} map[string]string
 // @Router /auth/register [post]
 func (s *Server) register(c echo.Context) error {
+	if !s.opts.AllowRegistration {
+		return c.JSON(http.StatusForbidden, map[string]string{
+			"error": "registration is closed",
+		})
+	}
+	return s.createAccount(c)
+}
+
+// createAccount reads a RegisterRequest and creates the user.
+func (s *Server) createAccount(c echo.Context) error {
 	var req RegisterRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -108,7 +119,7 @@ func (s *Server) register(c echo.Context) error {
 		})
 	}
 
-	user, err := s.userSvc.RegisterUser(c.Request().Context(), req.Name, req.Email, req.Password)
+	user, err := s.accounts.RegisterUser(c.Request().Context(), req.Name, req.Email, req.Password)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": err.Error(),

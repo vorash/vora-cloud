@@ -134,3 +134,19 @@ func (s *Server) deleteAPIKey(c echo.Context) error {
 		"message": "API key deleted successfully",
 	})
 }
+
+// adminCreateUser handles POST /api/v1/admin/users
+// @Summary Create a user
+// @Description Create a user account (admin API key only). Registration is closed by default, so this is how users are added.
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param request body RegisterRequest true "Create User Request"
+// @Success 201 {object} RegisterResponse
+// @Failure 400 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Router /admin/users [post]
+func (s *Server) adminCreateUser(c echo.Context) error {
+	return s.createAccount(c)
+}
