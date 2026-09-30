@@ -395,7 +395,7 @@ func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
 		if !strings.Contains(csp, "default-src 'none'") || strings.Contains(csp, "script-src") || !strings.Contains(csp, "frame-ancestors 'none'") {
 			t.Errorf("%s CSP: %q", path, csp)
 		}
-		if h.Get("X-Content-Type-Options") != "nosniff" || h.Get("Referrer-Policy") != "no-referrer" || h.Get("X-Frame-Options") != "DENY" {
+		if h.Get("X-Content-Type-Options") != "nosniff" || h.Get("Referrer-Policy") != "same-origin" || h.Get("X-Frame-Options") != "DENY" {
 			t.Errorf("%s headers: %v", path, h)
 		}
 	}
@@ -429,5 +429,20 @@ func TestOversizedBodiesAreRefused(t *testing.T) {
 	big := url.Values{"email": {"alice@example.com"}, "password": {strings.Repeat("x", 200_000)}}
 	if r := v.send("POST", "/login", big, nil, nil); r.code != http.StatusRequestEntityTooLarge {
 		t.Errorf("a 200 KB sign-in body: %d, want 413", r.code)
+	}
+}
+
+// Browsers send "Origin: null" on a same-site form post when the page's
+// referrer policy is "no-referrer" (Fetch spec, "serializing a request
+// origin"), and Firefox does. The Origin check refuses null, so that policy
+// would lock every user out of every form. Chrome does not do this, so only a
+// test on the policy catches it.
+func TestReferrerPolicyDoesNotMakeBrowsersSendANullOrigin(t *testing.T) {
+	v := newEnv(t)
+	for _, path := range []string{"/login", "/"} {
+		policy := v.send("GET", path, nil, nil, nil).header.Get("Referrer-Policy")
+		if policy == "no-referrer" || policy == "" {
+			t.Errorf("%s: Referrer-Policy %q makes browsers send Origin: null on forms", path, policy)
+		}
 	}
 }
