@@ -135,8 +135,9 @@ func main() {
 	}
 
 	// Create the gRPC server
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(api.AuthInterceptor(userSvc, apiKeySvc)))
 	pb.RegisterControlPlaneServer(grpcServer, appService)
+	pb.RegisterProjectsServer(grpcServer, api.NewProjectsService(projectSvc))
 
 	// Create REST server
 	restServer := rest.NewServer(appService, projectSvc, apiKeySvc, userSvc, cfg.HttpPort)

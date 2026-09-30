@@ -63,6 +63,7 @@ set -a; . ./.env; set +a
 Deploy an app to the `eu` region and check it:
 
 ```bash
+export VORA_API_KEY=<admin key>   # deploy, delete and status need it
 ./bin/cli -action=deploy -region=eu -name=whoami -image=traefik/whoami:latest \
   -host=whoami.eu.example.com -ssl
 ./bin/cli -action=status -region=eu -name=whoami
@@ -76,6 +77,8 @@ Deploy an app to the `eu` region and check it:
 A deployment id is `<region>/<name>`, for example `eu/whoami`. Deploy returns it, and status and delete take it, because those requests carry no region. Ids without a region are rejected. In REST paths send the slash as `%2F`: `/api/v1/applications/eu%2Fwhoami/status`.
 
 ### gRPC
+
+Every method except `HealthCheck` needs credentials in the call metadata: `authorization: Bearer <jwt>` or `x-api-key: <key>`, the same as REST. `ControlPlane` methods (`DeployApplication`, `DeleteApplication`, `GetApplicationStatus`) need an admin API key, one that belongs to no user; the CLI reads it from `VORA_API_KEY`. The `Projects` service ([`api/proto/projects.proto`](api/proto/projects.proto): create, list, get and delete projects; list and get deployments; `DeployImage`, `Redeploy`, `Rollback`) needs a user. A method that is not listed in `pkg/api/authn.go` is refused. Environment variables are REST only for now.
 
 The service is `ControlPlane` in [`api/proto/controlplane.proto`](api/proto/controlplane.proto) (`DeployApplication`, `DeleteApplication`, `GetApplicationStatus`, `HealthCheck`; `GetApplicationLogs` is not implemented yet).
 

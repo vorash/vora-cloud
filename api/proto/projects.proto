@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package controlplane;
+option go_package = "github.com/vorash/vora-cloud/api/proto";
+
+// Projects belong to the authenticated user; another user's project is
+// reported as NOT_FOUND. Callers authenticate with "authorization: Bearer
+// <jwt>" or "x-api-key: <key>" metadata, and the key must belong to a user.
+service Projects {
+    rpc CreateProject(CreateProjectRequest) returns (Project);
+    rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+    rpc GetProject(GetProjectRequest) returns (Project);
+    rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+
+    rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+    rpc GetDeployment(GetDeploymentRequest) returns (Deployment);
+    // DeployImage runs an existing image as a new deployment. A cluster error
+    // is recorded on the returned deployment as status "failed".
+    rpc DeployImage(DeployImageRequest) returns (Deployment);
+    rpc Redeploy(RedeployRequest) returns (Deployment);
+    rpc Rollback(RollbackRequest) returns (Deployment);
+}
+
+message Project {
+    string id = 1;
+    string name = 2;
+    string slug = 3;
+    string repo = 4;
+    string default_branch = 5;
+    string region = 6;
+    int32 port = 7;
+    int32 replicas = 8;
+    int64 cpu_millis = 9;
+    int64 memory_mib = 10;
+    string health_path = 11;
+    int64 created_at = 12; // Unix seconds
+}
+
+message Deployment {
+    string id = 1;
+    string project_id = 2;
+    string commit_sha = 3;
+    string ref = 4;
+    string status = 5; // queued, building, pushing, deploying, ready or failed
+    string image = 6;
+    string region = 7;
+    string url = 8;
+    string error = 9;
+    int64 created_at = 10; // Unix seconds
+    int64 started_at = 11; // 0 when not started
+    int64 finished_at = 12; // 0 when not finished
+}
+
+message CreateProjectRequest {
+    string name = 1;
+    string slug = 2; // unique across all users; names the namespace and host
+    string region = 3;
+    string repo = 4;
+    string default_branch = 5;
+    int32 port = 6;
+    int32 replicas = 7;
+    int64 cpu_millis = 8;
+    int64 memory_mib = 9;
+    string health_path = 10;
+}
+
+message ListProjectsRequest {}
+
+message ListProjectsResponse {
+    repeated Project projects = 1;
+}
+
+message GetProjectRequest {
+    string id = 1;
+}
+
+message DeleteProjectRequest {
+    string id = 1;
+}
+
+message DeleteProjectResponse {}
+
+message ListDeploymentsRequest {
+    string project_id = 1;
+}
+
+message ListDeploymentsResponse {
+    repeated Deployment deployments = 1; // newest first
+}
+
+message GetDeploymentRequest {
+    string id = 1;
+}
+
+message DeployImageRequest {
+    string project_id = 1;
+    string image = 2;
+    string commit_sha = 3;
+    string ref = 4;
+}
+
+message RedeployRequest {
+    string project_id = 1;
+}
+
+message RollbackRequest {
+    string project_id = 1;
+    string deployment_id = 2; // an earlier deployment that became ready
+}
