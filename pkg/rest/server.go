@@ -23,12 +23,14 @@ import (
 	_ "github.com/vorash/vora-cloud/docs"
 	"github.com/vorash/vora-cloud/pkg/api"
 	"github.com/vorash/vora-cloud/pkg/auth"
+	"github.com/vorash/vora-cloud/pkg/project"
 )
 
 // Server the REST API server
 type Server struct {
 	echo           *echo.Echo
 	appService     *api.ApplicationService
+	projects       *project.Service
 	authSvc        *auth.APIKeyService
 	userSvc        *auth.UserService
 	port           string
@@ -36,7 +38,7 @@ type Server struct {
 }
 
 // NewServer creates a new REST API server
-func NewServer(appService *api.ApplicationService, authSvc *auth.APIKeyService, userSvc *auth.UserService, port string) *Server {
+func NewServer(appService *api.ApplicationService, projects *project.Service, authSvc *auth.APIKeyService, userSvc *auth.UserService, port string) *Server {
 	tp := initTracer()
 
 	e := echo.New()
@@ -50,6 +52,7 @@ func NewServer(appService *api.ApplicationService, authSvc *auth.APIKeyService, 
 	server := &Server{
 		echo:           e,
 		appService:     appService,
+		projects:       projects,
 		authSvc:        authSvc,
 		userSvc:        userSvc,
 		port:           port,
@@ -80,10 +83,7 @@ func (s *Server) setupRoutes() {
 	v1 := s.echo.Group("/api/v1")
 	v1.Use(s.authMiddleware)
 
-	// Application operations (accept both JWT and API key)
-	v1.POST("/applications", s.deployApplication)
-	v1.DELETE("/applications/:id", s.deleteApplication)
-	v1.GET("/applications/:id/status", s.getApplicationStatus)
+	s.registerDeployRoutes(v1)
 
 	// User API key management (require JWT only)
 	userKeys := v1.Group("/user/keys")
@@ -92,8 +92,36 @@ func (s *Server) setupRoutes() {
 	userKeys.GET("", s.listUserAPIKeys)
 	userKeys.DELETE("/:id", s.deleteUserAPIKey)
 
-	// Admin operations (accept both JWT and API key. TODO: should check permissions)
-	admin := v1.Group("/admin")
+}
+
+// registerDeployRoutes adds the routes that deploy apps and mint admin keys,
+// behind whatever authentication v1 already has.
+func (s *Server) registerDeployRoutes(v1 *echo.Group) {
+	// Application operations. They have no owner, so only API keys without a
+	// user (admin) may use them; users deploy through projects.
+	apps := v1.Group("/applications", s.adminKeyOnlyMiddleware)
+	apps.POST("", s.deployApplication)
+	apps.DELETE("/:id", s.deleteApplication)
+	apps.GET("/:id/status", s.getApplicationStatus)
+
+	// Projects and deployments (a user's JWT or API key)
+	projects := v1.Group("/projects", s.userOnlyMiddleware)
+	projects.POST("", s.createProject)
+	projects.GET("", s.listProjects)
+	projects.GET("/:id", s.getProject)
+	projects.DELETE("/:id", s.deleteProject)
+	projects.GET("/:id/deployments", s.listDeployments)
+	projects.POST("/:id/deployments", s.deployImage)
+	projects.POST("/:id/redeploy", s.redeploy)
+	projects.POST("/:id/rollback", s.rollback)
+	projects.GET("/:id/env", s.listEnv)
+	projects.PUT("/:id/env/:name", s.setEnv)
+	projects.DELETE("/:id/env/:name", s.deleteEnv)
+	v1.GET("/deployments/:id", s.getDeployment, s.userOnlyMiddleware)
+
+	// Admin operations: only an API key that belongs to no user. Otherwise any
+	// user could mint an ownerless key and use it on the ownerless endpoints.
+	admin := v1.Group("/admin", s.adminKeyOnlyMiddleware)
 	admin.POST("/keys", s.createAPIKey)
 	admin.GET("/keys", s.listAPIKeys)
 	admin.DELETE("/keys/:id", s.deleteAPIKey)

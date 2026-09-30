@@ -16,6 +16,10 @@ type Config struct {
 	DBConnection string
 	BootstrapKey string
 	JWTSecret    string
+	// SecretsKey is a base64 32 byte key that encrypts project env vars.
+	SecretsKey string
+	// AppsDomain is the base of app hosts: <slug>.<region>.<AppsDomain>.
+	AppsDomain string
 }
 
 func LoadConfig() *Config {
@@ -27,6 +31,8 @@ func LoadConfig() *Config {
 		DBConnection: utils.GetEnv("DATABASE_URL", "postgres://postgres@localhost:5432/control-plane"),
 		BootstrapKey: utils.GetEnv("BOOTSTRAP_KEY", ""),
 		JWTSecret:    utils.GetEnv("JWT_SECRET", ""),
+		SecretsKey:   utils.GetEnv("SECRETS_KEY", ""),
+		AppsDomain:   utils.GetEnv("APPS_DOMAIN", ""),
 	}
 }
 
