@@ -155,6 +155,45 @@ func TestAnotherUserSeesNothingOfAProject(t *testing.T) {
 	}
 }
 
+// The projects page shows each project's newest deployment. A project with no
+// deployment shows none, and nobody's list carries another user's deployment.
+func TestSummariesCarryTheNewestDeploymentOfTheOwnersProjects(t *testing.T) {
+	e := newEnv(t)
+	web := e.project(t, e.alice, "web")
+	e.project(t, e.alice, "idle")
+	e.deploy(t, web, "reg/web:1")
+	newest := e.deploy(t, web, "reg/web:2")
+	theirs := e.project(t, e.bob, "theirs")
+	if _, err := e.svc.Deploy(ctx, e.bob, theirs.ID, DeployInput{Image: "reg/theirs:1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	bySlug := func(owner uuid.UUID) map[string]Summary {
+		t.Helper()
+		list, err := e.svc.ListSummaries(ctx, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]Summary{}
+		for _, s := range list {
+			out[s.Slug] = s
+		}
+		return out
+	}
+
+	alice := bySlug(e.alice)
+	if len(alice) != 2 || alice["web"].Latest == nil || alice["web"].Latest.ID != newest.ID {
+		t.Errorf("alice's web must carry its newest deployment %s: %+v", newest.ID, alice["web"].Latest)
+	}
+	if alice["idle"].Latest != nil {
+		t.Errorf("a project without deployments has none: %+v", alice["idle"].Latest)
+	}
+	bob := bySlug(e.bob)
+	if len(bob) != 1 || bob["theirs"].Latest == nil || bob["theirs"].Latest.Image != "reg/theirs:1" {
+		t.Errorf("bob sees only his own project and deployment: %+v", bob)
+	}
+}
+
 func TestRollbackRejectsADeploymentOfAnotherProject(t *testing.T) {
 	e := newEnv(t)
 	mine := e.project(t, e.alice, "mine")

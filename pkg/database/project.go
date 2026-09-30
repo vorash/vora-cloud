@@ -136,6 +136,23 @@ func (r *ProjectRepository) ListDeployments(ctx context.Context, projectID uuid.
 		WHERE project_id = $1 ORDER BY created_at DESC, id`, projectID)
 }
 
+// LatestDeployments picks each project's newest deployment with the same
+// order as ListDeployments; idx_deployments_project_id serves the inner query.
+func (r *ProjectRepository) LatestDeployments(ctx context.Context, owner uuid.UUID) (map[uuid.UUID]project.Deployment, error) {
+	deps, err := r.listDeployments(ctx, `SELECT `+deploymentColumns+` FROM deployments WHERE id IN (
+		SELECT DISTINCT ON (project_id) id FROM deployments
+		WHERE project_id IN (SELECT id FROM projects WHERE owner_id = $1)
+		ORDER BY project_id, created_at DESC, id)`, owner)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]project.Deployment, len(deps))
+	for _, d := range deps {
+		out[d.ProjectID] = d
+	}
+	return out, nil
+}
+
 func (r *ProjectRepository) ListActive(ctx context.Context) ([]project.Deployment, error) {
 	return r.listDeployments(ctx, `SELECT `+deploymentColumns+` FROM deployments
 		WHERE status NOT IN ('ready', 'failed') ORDER BY created_at`)

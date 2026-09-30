@@ -110,6 +110,27 @@ func (s *Service) ListProjects(ctx context.Context, owner uuid.UUID) ([]Project,
 	return s.store.ListProjects(ctx, owner)
 }
 
+// ListSummaries lists the owner's projects, each with its newest deployment.
+// A deployment is matched only to a project in the owner's own list.
+func (s *Service) ListSummaries(ctx context.Context, owner uuid.UUID) ([]Summary, error) {
+	projects, err := s.store.ListProjects(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	latest, err := s.store.LatestDeployments(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Summary, len(projects))
+	for i, p := range projects {
+		out[i].Project = p
+		if d, ok := latest[p.ID]; ok {
+			out[i].Latest = &d
+		}
+	}
+	return out, nil
+}
+
 // owned loads a project and hides it from everyone but its owner.
 func (s *Service) owned(ctx context.Context, owner, id uuid.UUID) (*Project, error) {
 	p, err := s.store.GetProject(ctx, id)

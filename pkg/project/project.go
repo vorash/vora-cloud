@@ -96,6 +96,12 @@ type Deployment struct {
 	UpdatedAt  time.Time
 }
 
+// Summary is a project with its newest deployment, nil if it has none.
+type Summary struct {
+	Project
+	Latest *Deployment
+}
+
 // Store persists projects, deployments and encrypted env vars. Lookups by id
 // are not scoped to an owner: the Service checks ownership, so the rule lives
 // in one place and is covered by tests without a database.
@@ -109,6 +115,9 @@ type Store interface {
 	GetDeployment(ctx context.Context, id uuid.UUID) (*Deployment, error)
 	// ListDeployments returns a project's deployments, newest first.
 	ListDeployments(ctx context.Context, project uuid.UUID) ([]Deployment, error)
+	// LatestDeployments returns the newest deployment of each of the owner's
+	// projects that has one, by project id.
+	LatestDeployments(ctx context.Context, owner uuid.UUID) (map[uuid.UUID]Deployment, error)
 	// ListActive returns deployments that have not reached a final status.
 	ListActive(ctx context.Context) ([]Deployment, error)
 	// Move changes the status only if it is still "from" (ErrConflict

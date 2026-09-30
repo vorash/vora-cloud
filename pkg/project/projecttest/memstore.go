@@ -98,6 +98,19 @@ func (m *MemStore) ListDeployments(_ context.Context, projectID uuid.UUID) ([]pr
 	return out, nil
 }
 
+func (m *MemStore) LatestDeployments(_ context.Context, owner uuid.UUID) (map[uuid.UUID]project.Deployment, error) {
+	out := map[uuid.UUID]project.Deployment{}
+	for i := len(m.deps) - 1; i >= 0; i-- { // newest first
+		d := m.deps[i]
+		if p, ok := m.projects[d.ProjectID]; ok && p.OwnerID == owner {
+			if _, seen := out[d.ProjectID]; !seen {
+				out[d.ProjectID] = *d
+			}
+		}
+	}
+	return out, nil
+}
+
 func (m *MemStore) ListActive(context.Context) ([]project.Deployment, error) {
 	var out []project.Deployment
 	for _, d := range m.deps {
