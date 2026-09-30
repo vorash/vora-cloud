@@ -431,6 +431,43 @@ paths:
       summary: Delete an API key
       tags:
       - admin
+  /admin/users:
+    post:
+      consumes:
+      - application/json
+      description: Create a user account (admin API key only). Registration is closed
+        by default, so this is how users are added.
+      parameters:
+      - description: Create User Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/rest.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/rest.RegisterResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Create a user
+      tags:
+      - admin
   /applications:
     post:
       consumes:
@@ -666,7 +703,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Register a new user with name, email and password
+      description: Register a new user with name, email and password. Off unless ALLOW_REGISTRATION=true;
+        otherwise an admin creates users with POST /admin/users.
       parameters:
       - description: Register Request
         in: body
@@ -683,6 +721,12 @@ paths:
             $ref: '#/definitions/rest.RegisterResponse'
         "400":
           description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
           schema:
             additionalProperties:
               type: string

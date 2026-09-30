@@ -2,6 +2,7 @@ package rest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/vorash/vora-cloud/pkg/api"
+	"github.com/vorash/vora-cloud/pkg/database"
 	"github.com/vorash/vora-cloud/pkg/deploy"
 	"github.com/vorash/vora-cloud/pkg/deploy/k3s"
 	"github.com/vorash/vora-cloud/pkg/project"
@@ -28,6 +30,14 @@ var (
 // projectsAPI serves the real deploy routes and middleware. Only the login
 // step is replaced: the caller is named by a header, and "admin" stands for an
 // API key that belongs to no user.
+// fakeAccounts records the accounts the handlers create.
+type fakeAccounts struct{ created []string }
+
+func (f *fakeAccounts) RegisterUser(_ context.Context, name, email, _ string) (*database.User, error) {
+	f.created = append(f.created, email)
+	return &database.User{ID: uuid.New(), Name: name, Email: email}, nil
+}
+
 func projectsAPI(t *testing.T) *echo.Echo {
 	t.Helper()
 	reg, err := deploy.NewRegistry(map[string]deploy.Deployer{"eu": k3s.New(fake.NewClientset(), k3s.Options{})})
@@ -39,6 +49,7 @@ func projectsAPI(t *testing.T) *echo.Echo {
 		t.Fatal(err)
 	}
 	s := &Server{
+		accounts:   &fakeAccounts{},
 		appService: api.NewApplicationService(reg),
 		projects:   project.NewService(projecttest.New(), reg, box, "cloud.example.com"),
 	}
@@ -215,5 +226,39 @@ func TestEnvValuesAreNeverReturned(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), "DATABASE_URL") || strings.Contains(rec.Body.String(), "hunter2") {
 		t.Errorf("env listing: %s", rec.Body.String())
+	}
+}
+
+// Registration is closed by default: anyone could otherwise sign up and deploy
+// any image onto the shared node.
+func TestRegistrationIsClosedUnlessAllowed(t *testing.T) {
+	body := `{"name":"n","email":"a@example.com","password":"longenough"}`
+	for _, open := range []bool{false, true} {
+		acc := &fakeAccounts{}
+		s := &Server{accounts: acc, opts: Options{AllowRegistration: open}}
+		e := echo.New()
+		e.POST("/register", s.register)
+		code, _ := call(t, e, "", "POST", "/register", body)
+		want, wantCreated := http.StatusForbidden, 0
+		if open {
+			want, wantCreated = http.StatusCreated, 1
+		}
+		if code != want || len(acc.created) != wantCreated {
+			t.Errorf("AllowRegistration=%v: %d, %d accounts created; want %d and %d", open, code, len(acc.created), want, wantCreated)
+		}
+	}
+}
+
+func TestOnlyAnAdminKeyCreatesUsers(t *testing.T) {
+	e := projectsAPI(t)
+	body := `{"name":"n","email":"new@example.com","password":"longenough"}`
+	if code, _ := call(t, e, alice, "POST", "/api/v1/admin/users", body); code != http.StatusForbidden {
+		t.Errorf("user creating a user: %d, want 403", code)
+	}
+	if code, out := call(t, e, "admin", "POST", "/api/v1/admin/users", body); code != http.StatusCreated || out["email"] != "new@example.com" {
+		t.Errorf("admin creating a user: %d %v", code, out)
+	}
+	if code, _ := call(t, e, "admin", "POST", "/api/v1/admin/users", `{"name":"n","email":"x@example.com","password":"short"}`); code != http.StatusBadRequest {
+		t.Errorf("short password: %d, want 400", code)
 	}
 }

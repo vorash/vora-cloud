@@ -50,6 +50,7 @@ The controller reads its configuration from the environment:
 | `DB_MAX_CONNS`, `DB_MIN_CONNS` | Size of the service's connection pool (default `25` and `5`). Behind Supabase's session pooler each connection holds a backend connection, and the pooler's pool size (Supabase dashboard, Database settings) is a plan limit: keep `DB_MAX_CONNS` below it (migrations use the direct connection and do not count against it), or connects fail with "max clients reached" |
 | `SECRETS_KEY` | Required. Base64 of 32 random bytes (`openssl rand -base64 32`); encrypts project environment variables. Losing it makes stored variables unreadable |
 | `APPS_DOMAIN` | Base domain of app hosts: a project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. Empty leaves apps unexposed |
+| `ALLOW_REGISTRATION` | `true` lets anyone call `POST /auth/register`. Off by default: an admin API key creates users with `POST /admin/users` |
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
 | `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |
 
@@ -119,7 +120,8 @@ Served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
 | `GET` and `POST /projects/:id/deployments`, `GET /deployments/:id` | List deployments, deploy an existing image, get one deployment |
 | `POST /projects/:id/redeploy`, `POST /projects/:id/rollback` | Run the latest image again; deploy the image of an earlier ready deployment (`{"deployment_id": ...}`) |
 | `GET /projects/:id/env`, `PUT` and `DELETE /projects/:id/env/:name` | Environment variables. Stored encrypted, values are never returned, applied on the next deploy |
-| `/auth/*` | Register, log in, refresh, log out |
+| `/auth/*` | Register (closed unless `ALLOW_REGISTRATION=true`), log in, refresh, log out |
+| `POST /admin/users` | Create a user. Admin API keys only |
 | `/user/keys`, `/admin/keys` | API keys |
 
 ## CLI
