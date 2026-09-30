@@ -44,6 +44,11 @@ start_cluster plain
 if migrate -path migrations -database "$URL" up >/dev/null 2>&1; then pass "up applies every migration"; else fail "up failed"; fi
 expect "migration version" 3 "$(q 'select version from schema_migrations')"
 expect "row level security is on" t "$(q "select relrowsecurity from pg_class where relname = 'users'")"
+# Supabase hands every new public table to anon and authenticated, so a table
+# without row level security is readable through the Data API.
+expect "every public table has row level security" "" "$(q "select string_agg(c.relname, ', ') from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity")"
 if migrate -path migrations -database "$URL" down -all >/dev/null 2>&1 <<<"y"; then pass "down -all applies every down migration"; else fail "down -all failed"; fi
 expect "down leaves no application tables" 0 "$(app_relations)"
 if migrate -path migrations -database "$URL" up >/dev/null 2>&1; then pass "up works again after down"; else fail "second up failed"; fi

@@ -50,6 +50,8 @@ The controller reads its configuration from the environment:
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
 | `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |
 
+With Supabase there are two endpoints, and each has one job. The running service uses the **session pooler** (`aws-1-eu-west-1.pooler.supabase.com:5432`, user `postgres.<ref>`, `sslmode=require`), which is reachable over IPv4. Migrations use the **direct connection** (`db.<ref>.supabase.co`), which is IPv6 only, so run `make migrate-up` from a machine that has IPv6, not from the staging guest.
+
 ```bash
 DATABASE_URL=postgres://... make migrate-up
 set -a; . ./.env; set +a
