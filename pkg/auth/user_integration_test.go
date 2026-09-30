@@ -58,4 +58,11 @@ func TestAuthenticateUser(t *testing.T) {
 	if _, err := svc.AuthenticateUser(ctx, email, "correct horse"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Errorf("inactive account: %v, want ErrInvalidCredentials", err)
 	}
+	// The API's sign-in goes through the same check, so it answers the same.
+	if _, _, _, err := svc.LoginUser(ctx, email, "correct horse"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("LoginUser, inactive account: %v, want ErrInvalidCredentials", err)
+	}
+	if _, _, _, err := svc.LoginUser(ctx, "nobody-"+email, "x"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("LoginUser, unknown email: %v, want ErrInvalidCredentials", err)
+	}
 }

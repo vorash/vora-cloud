@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"os"
 
@@ -31,6 +32,19 @@ import (
 type Options struct {
 	// AllowRegistration opens POST /auth/register to anyone.
 	AllowRegistration bool
+	// Limiter limits sign-in attempts per email. Share it with the dashboard, so
+	// guesses over either count against one budget. Nil gets a private default.
+	Limiter LoginLimiter
+}
+
+// LoginLimiter spends one sign-in attempt for an account.
+type LoginLimiter interface {
+	Allow(key string) bool
+}
+
+// logins signs users in.
+type logins interface {
+	LoginUser(ctx context.Context, email, password string) (accessToken, refreshToken string, user *database.User, err error)
 }
 
 // accountCreator creates user accounts.
@@ -46,6 +60,7 @@ type Server struct {
 	authSvc        *auth.APIKeyService
 	userSvc        *auth.UserService
 	accounts       accountCreator
+	logins         logins
 	opts           Options
 	port           string
 	tracerProvider *sdktrace.TracerProvider
@@ -54,6 +69,9 @@ type Server struct {
 // NewServer creates a new REST API server
 func NewServer(appService *api.ApplicationService, projects *project.Service, authSvc *auth.APIKeyService, userSvc *auth.UserService, port string, opts Options) *Server {
 	tp := initTracer()
+	if opts.Limiter == nil {
+		opts.Limiter = auth.NewAttemptLimiter(12*time.Second, 5)
+	}
 
 	e := echo.New()
 	e.HideBanner = true
@@ -70,6 +88,7 @@ func NewServer(appService *api.ApplicationService, projects *project.Service, au
 		authSvc:        authSvc,
 		userSvc:        userSvc,
 		accounts:       userSvc,
+		logins:         userSvc,
 		opts:           opts,
 		port:           port,
 		tracerProvider: tp,

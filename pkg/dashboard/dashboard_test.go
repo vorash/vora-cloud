@@ -94,6 +94,7 @@ func newEnv(t *testing.T) *env {
 	d, err := New(Config{
 		Sessions: ss, Users: fakeUsers{}, Projects: svc, Regions: reg.Regions(),
 		PublicURL: site, CSRFKey: bytes.Repeat([]byte{7}, 32),
+		Limiter: auth.NewAttemptLimiter(12*time.Second, 5),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -403,8 +404,30 @@ func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
 	}
 }
 
-func TestNewRefusesAShortCSRFKey(t *testing.T) {
-	if _, err := New(Config{CSRFKey: []byte("short")}); err == nil {
+func TestNewRefusesAWeakConfig(t *testing.T) {
+	if _, err := New(Config{CSRFKey: []byte("short"), Limiter: auth.NewAttemptLimiter(time.Second, 1)}); err == nil {
 		t.Error("accepted a short CSRF key")
+	}
+	if _, err := New(Config{CSRFKey: bytes.Repeat([]byte{1}, 32)}); err == nil {
+		t.Error("accepted a missing sign-in limiter")
+	}
+}
+
+// Unknown URLs must stay plain 404s: dashboard middleware must not answer for
+// paths the dashboard does not own.
+func TestUnknownPathsAre404NotASignInRedirect(t *testing.T) {
+	v := newEnv(t)
+	for _, path := range []string{"/nope", "/api/v1/nope", "/projects/x/y/z"} {
+		if r := v.send("GET", path, nil, nil, nil); r.code != http.StatusNotFound {
+			t.Errorf("GET %s: %d, want 404", path, r.code)
+		}
+	}
+}
+
+func TestOversizedBodiesAreRefused(t *testing.T) {
+	v := newEnv(t)
+	big := url.Values{"email": {"alice@example.com"}, "password": {strings.Repeat("x", 200_000)}}
+	if r := v.send("POST", "/login", big, nil, nil); r.code != http.StatusRequestEntityTooLarge {
+		t.Errorf("a 200 KB sign-in body: %d, want 413", r.code)
 	}
 }

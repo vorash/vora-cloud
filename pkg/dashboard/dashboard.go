@@ -17,8 +17,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"golang.org/x/time/rate"
-
 	"github.com/vorash/vora-cloud/pkg/database"
 	"github.com/vorash/vora-cloud/pkg/project"
 )
@@ -55,6 +53,8 @@ type Config struct {
 	PublicURL string
 	// CSRFKey signs the per-session form tokens; at least 32 bytes.
 	CSRFKey []byte
+	// Limiter limits sign-in attempts per email.
+	Limiter LoginLimiter
 }
 
 const sessionLifetime = 12 * time.Hour
@@ -68,6 +68,9 @@ type Dashboard struct {
 func New(cfg Config) (*Dashboard, error) {
 	if len(cfg.CSRFKey) < 32 {
 		return nil, errors.New("dashboard: CSRF key must be at least 32 bytes")
+	}
+	if cfg.Limiter == nil {
+		return nil, errors.New("dashboard: a sign-in limiter is required")
 	}
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
 	pages := map[string]*template.Template{}
@@ -89,35 +92,38 @@ func New(cfg Config) (*Dashboard, error) {
 	return &Dashboard{cfg: cfg, pages: pages}, nil
 }
 
+// LoginLimiter spends one sign-in attempt for an account. It is shared with
+// the REST sign-in, so guesses over either count against one budget.
+type LoginLimiter interface {
+	Allow(key string) bool
+}
+
+// maxBody bounds a request body. Every form here is a few short fields, and
+// the routes are reachable without a session.
+const maxBody = "64K"
+
 // Register adds the dashboard's routes to e. They sit outside /api/v1.
+//
+// Middleware is attached to each route, not to groups: echo answers every
+// unmatched path under a group that has middleware with that middleware, so
+// an empty-prefix group would turn any unknown URL on the server into a
+// redirect to the sign-in page.
 func (d *Dashboard) Register(e *echo.Echo) {
-	g := e.Group("", d.secureHeaders)
-	g.GET("/assets/app.css", d.stylesheet)
+	public := []echo.MiddlewareFunc{d.secureHeaders, middleware.BodyLimit(maxBody)}
+	private := append(append([]echo.MiddlewareFunc{}, public...), d.requireSession)
+	signIn := append(append([]echo.MiddlewareFunc{}, public...), d.originCheck)
 
-	// Sign-in is limited per account, so guessing one password is slow and
-	// the bcrypt work an attacker can cause is bounded.
-	limit := middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Store: middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{
-			Rate: rate.Every(12 * time.Second), Burst: 5, ExpiresIn: 15 * time.Minute,
-		}),
-		IdentifierExtractor: func(c echo.Context) (string, error) {
-			return strings.ToLower(strings.TrimSpace(c.FormValue("email"))), nil
-		},
-		DenyHandler: func(c echo.Context, _ string, _ error) error {
-			return d.render(c, http.StatusTooManyRequests, "login", page{Title: "Sign in", Error: "Too many attempts. Wait a minute and try again."})
-		},
-	})
-	g.GET("/login", d.loginForm)
-	g.POST("/login", d.login, d.originCheck, limit)
+	e.GET("/assets/app.css", d.stylesheet, d.secureHeaders)
+	e.GET("/login", d.loginForm, public...)
+	e.POST("/login", d.login, signIn...)
 
-	in := g.Group("", d.requireSession)
-	in.POST("/logout", d.logout)
-	in.GET("/", d.projects)
-	in.GET("/projects/new", d.newProjectForm)
-	in.POST("/projects", d.createProject)
-	in.GET("/projects/:id", d.showProject)
-	in.POST("/projects/:id/deployments", d.deploy)
-	in.POST("/projects/:id/redeploy", d.redeploy)
+	e.POST("/logout", d.logout, private...)
+	e.GET("/", d.projects, private...)
+	e.GET("/projects/new", d.newProjectForm, private...)
+	e.POST("/projects", d.createProject, private...)
+	e.GET("/projects/:id", d.showProject, private...)
+	e.POST("/projects/:id/deployments", d.deploy, private...)
+	e.POST("/projects/:id/redeploy", d.redeploy, private...)
 }
 
 func (d *Dashboard) stylesheet(c echo.Context) error {

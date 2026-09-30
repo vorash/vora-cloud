@@ -36,12 +36,17 @@ refused), and every form carries a per-session CSRF token. The API's CORS
 setting is permissive but never allows credentials, and the cookie is
 `SameSite=Strict`, so no other site can make a browser send it.
 
-**4. Sign-in answers the same for an unknown email, a wrong password and an
-inactive account, and does the same bcrypt work for each.** It is rate limited
-per account (five attempts, then one every 12 seconds). A limit per source
-address belongs to the edge (Traefik or Pangolin): behind a proxy the app sees
-only the proxy's address, and forwarded headers can be forged. The cost is that
-someone can slow a known user's sign-in by guessing at it.
+**4. Sign-in is hardened the same way over the dashboard and the REST API**
+(`POST /auth/login` is public on the same host, so guarding only one would
+leave the other as the way in). An unknown email, a wrong password and an
+inactive account get one answer and cost the same bcrypt work. Attempts are
+limited per account, five and then one every 12 seconds, from **one budget
+shared by both endpoints**, so switching endpoints buys no guesses. At most
+four password checks run at once, which bounds the CPU an anonymous caller can
+use. A limit per source address belongs to the edge (Traefik or Pangolin):
+behind a proxy the app sees only the proxy's address, and forwarded headers
+can be forged. The cost is that someone can slow a known user's sign-in by
+guessing at it.
 
 **5. Sign-up is closed.** `POST /auth/register` returns 403 unless
 `ALLOW_REGISTRATION=true`; users are created with an admin API key
@@ -58,6 +63,10 @@ node.
 
 ## Consequences
 
+- Dashboard routes carry their middleware one by one, not through an empty
+  route group, because echo answers every unmatched path under a group that has
+  middleware; a group would turn each unknown URL into a redirect to sign-in.
+  Request bodies are limited to 64 KB.
 - No client-side interactivity beyond forms and links; live status needs a
   page reload until a later slice adds server-sent events.
 - The dashboard's handlers use the same `project.Service` as REST and gRPC, so

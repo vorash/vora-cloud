@@ -17,6 +17,8 @@ import (
 
 const (
 	bcryptCost = 12
+	// maxConcurrentChecks bounds simultaneous password checks.
+	maxConcurrentChecks = 4
 )
 
 // UserService user authentication operations
@@ -24,6 +26,9 @@ type UserService struct {
 	userRepo         *database.UserRepository
 	refreshTokenRepo *database.RefreshTokenRepository
 	jwtService       *JWTService
+	// hashSlots caps concurrent bcrypt checks: each takes a core for a while,
+	// and sign-in is reachable without credentials.
+	hashSlots chan struct{}
 }
 
 func NewUserService(
@@ -35,6 +40,7 @@ func NewUserService(
 		userRepo:         userRepo,
 		refreshTokenRepo: refreshTokenRepo,
 		jwtService:       jwtService,
+		hashSlots:        make(chan struct{}, maxConcurrentChecks),
 	}
 }
 
@@ -87,7 +93,13 @@ func (s *UserService) AuthenticateUser(ctx context.Context, email, password stri
 	if user != nil {
 		hash = user.PasswordHash
 	}
+	select {
+	case s.hashSlots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	matches := verifyPassword(password, hash)
+	<-s.hashSlots
 	if user == nil || !user.IsActive || !matches {
 		return nil, ErrInvalidCredentials
 	}
@@ -97,21 +109,13 @@ func (s *UserService) AuthenticateUser(ctx context.Context, email, password stri
 	return user, nil
 }
 
-// LoginUser authenticates a user and returns access and refresh tokens
+// LoginUser authenticates a user and returns access and refresh tokens. A bad
+// email, a wrong password and an inactive account all return
+// ErrInvalidCredentials, so the API does not reveal which accounts exist.
 func (s *UserService) LoginUser(ctx context.Context, email, password string) (accessToken, refreshToken string, user *database.User, err error) {
-	user, err = s.userRepo.GetByEmail(ctx, email)
+	user, err = s.AuthenticateUser(ctx, email, password)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to get user: %w", err)
-	}
-	if user == nil {
-		return "", "", nil, fmt.Errorf("invalid email or password")
-	}
-
-	if !user.IsActive {
-		return "", "", nil, fmt.Errorf("user account is inactive")
-	}
-	if !verifyPassword(password, user.PasswordHash) {
-		return "", "", nil, fmt.Errorf("invalid email or password")
+		return "", "", nil, err
 	}
 
 	accessToken, err = s.jwtService.GenerateAccessToken(user.ID, user.Email, user.Name)
@@ -130,10 +134,6 @@ func (s *UserService) LoginUser(ctx context.Context, email, password string) (ac
 	_, err = s.refreshTokenRepo.Create(ctx, user.ID, tokenHash, expiresAt)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to store refresh token: %w", err)
-	}
-
-	if err := s.userRepo.UpdateLastLogin(ctx, user.ID); err != nil {
-		fmt.Printf("Warning: failed to update last login for user %s: %v\n", user.ID, err)
 	}
 
 	return accessToken, refreshToken, user, nil

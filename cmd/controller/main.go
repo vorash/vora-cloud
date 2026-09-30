@@ -141,9 +141,12 @@ func main() {
 	pb.RegisterControlPlaneServer(grpcServer, appService)
 	pb.RegisterProjectsServer(grpcServer, api.NewProjectsService(projectSvc))
 
+	// One sign-in budget per account, shared by the REST and dashboard sign-in.
+	loginLimiter := auth.NewAttemptLimiter(12*time.Second, 5)
+
 	// Create REST server
 	restServer := rest.NewServer(appService, projectSvc, apiKeySvc, userSvc, cfg.HttpPort,
-		rest.Options{AllowRegistration: cfg.AllowRegistration})
+		rest.Options{AllowRegistration: cfg.AllowRegistration, Limiter: loginLimiter})
 
 	// The dashboard shares the REST server's listener. Its form tokens are keyed
 	// from the JWT secret with a label, so the two uses never share a key.
@@ -151,7 +154,7 @@ func main() {
 	sessions := database.NewSessionRepository(db)
 	dash, err := dashboard.New(dashboard.Config{
 		Sessions: sessions, Users: userSvc, Projects: projectSvc, Regions: regions.Regions(),
-		PublicURL: cfg.PublicURL, CSRFKey: csrfKey[:],
+		PublicURL: cfg.PublicURL, CSRFKey: csrfKey[:], Limiter: loginLimiter,
 	})
 	if err != nil {
 		log.Fatalf("Failed to set up the dashboard: %v", err)

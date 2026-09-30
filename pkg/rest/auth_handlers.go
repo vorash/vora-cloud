@@ -1,12 +1,16 @@
 package rest
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+
+	"github.com/vorash/vora-cloud/pkg/auth"
 )
 
 const (
@@ -160,10 +164,22 @@ func (s *Server) login(c echo.Context) error {
 		})
 	}
 
-	accessToken, refreshToken, user, err := s.userSvc.LoginUser(c.Request().Context(), req.Email, req.Password)
-	if err != nil {
+	if !s.opts.Limiter.Allow(req.Email) {
+		return c.JSON(http.StatusTooManyRequests, map[string]string{
+			"error": "too many attempts, try again later",
+		})
+	}
+
+	accessToken, refreshToken, user, err := s.logins.LoginUser(c.Request().Context(), req.Email, req.Password)
+	if errors.Is(err, auth.ErrInvalidCredentials) {
 		return c.JSON(http.StatusUnauthorized, map[string]string{
-			"error": err.Error(),
+			"error": auth.ErrInvalidCredentials.Error(),
+		})
+	}
+	if err != nil {
+		log.Printf("login: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "internal error",
 		})
 	}
 

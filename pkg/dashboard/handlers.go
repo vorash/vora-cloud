@@ -68,6 +68,9 @@ func (d *Dashboard) loginForm(c echo.Context) error {
 func (d *Dashboard) login(c echo.Context) error {
 	ctx := c.Request().Context()
 	email := strings.TrimSpace(c.FormValue("email"))
+	if !d.cfg.Limiter.Allow(email) {
+		return d.render(c, http.StatusTooManyRequests, "login", page{Title: "Sign in", Error: "Too many attempts. Wait a minute and try again."})
+	}
 	user, err := d.cfg.Users.AuthenticateUser(ctx, email, c.FormValue("password"))
 	if errors.Is(err, auth.ErrInvalidCredentials) {
 		return d.render(c, http.StatusUnauthorized, "login", page{Title: "Sign in", Error: "Invalid email or password."})
