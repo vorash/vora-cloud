@@ -110,6 +110,9 @@ func (s *Server) setupRoutes() {
 
 }
 
+// Echo returns the underlying router, so the dashboard can add its pages.
+func (s *Server) Echo() *echo.Echo { return s.echo }
+
 // registerDeployRoutes adds the routes that deploy apps and mint admin keys,
 // behind whatever authentication v1 already has.
 func (s *Server) registerDeployRoutes(v1 *echo.Group) {

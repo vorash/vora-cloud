@@ -26,16 +26,22 @@ forbids scripts.
 stored only as its SHA-256 hash (like refresh tokens), in a cookie that is
 `HttpOnly; Secure; SameSite=Strict`. It is not the API's JWT: the API keeps
 JWTs and API keys for programs, the dashboard keeps sessions for browsers.
-Sessions expire, sign-out deletes the row, and a password change or user
-deactivation ends them.
+Sessions last 12 hours, sign-out deletes the row, and a session of a
+deactivated user stops working at once (the lookup requires an active user).
+Ending sessions on a password change is not built yet.
 
 **3. Writes are checked twice against cross-site requests:** the `Origin`
-header must be the site's own origin, and every form carries a per-session
-CSRF token. Cookie-authenticated routes are not covered by the API's CORS
-middleware.
+header must be the site's own origin (`PUBLIC_URL`; a missing Origin is
+refused), and every form carries a per-session CSRF token. The API's CORS
+setting is permissive but never allows credentials, and the cookie is
+`SameSite=Strict`, so no other site can make a browser send it.
 
-**4. Sign-in is rate limited and answers the same for an unknown email and a
-wrong password.**
+**4. Sign-in answers the same for an unknown email, a wrong password and an
+inactive account, and does the same bcrypt work for each.** It is rate limited
+per account (five attempts, then one every 12 seconds). A limit per source
+address belongs to the edge (Traefik or Pangolin): behind a proxy the app sees
+only the proxy's address, and forwarded headers can be forged. The cost is that
+someone can slow a known user's sign-in by guessing at it.
 
 **5. Sign-up is closed.** `POST /auth/register` returns 403 unless
 `ALLOW_REGISTRATION=true`; users are created with an admin API key
@@ -56,6 +62,9 @@ node.
   page reload until a later slice adds server-sent events.
 - The dashboard's handlers use the same `project.Service` as REST and gRPC, so
   the ownership rule is not duplicated.
-- The dashboard is its own package with its own session table (migration in
-  the dashboard change), and can be moved to a separate service later without
+- The dashboard is its own package (`pkg/dashboard`) with its own session table
+  (migration 006), and can be moved to a separate service later without
   touching the API.
+- Cluster error text (for example from a failed apply) is shown to the user as
+  the deployment's error. It can name internal addresses; sanitising it is a
+  follow-up.

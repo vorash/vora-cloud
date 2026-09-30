@@ -1,0 +1,21 @@
+{{define "base"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · vora cloud</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header>
+  <a class="brand" href="/">vora cloud</a>
+  {{if .User}}<span>{{.User}} ·
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="link" type="submit">Sign out</button></form>
+  </span>{{end}}
+</header>
+<main>
+{{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}

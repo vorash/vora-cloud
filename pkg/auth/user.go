@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,6 +58,42 @@ func (s *UserService) RegisterUser(ctx context.Context, name, email, password st
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
+	return user, nil
+}
+
+// ErrInvalidCredentials is the one answer for an unknown email, a wrong
+// password and an inactive account, so a sign-in form does not reveal which
+// accounts exist.
+var ErrInvalidCredentials = errors.New("invalid email or password")
+
+// dummyHash is compared against when the email is unknown, so an unknown
+// email costs the same time as a wrong password.
+var dummyHash = func() string {
+	h, err := hashPassword("no such user")
+	if err != nil {
+		panic(err)
+	}
+	return h
+}()
+
+// AuthenticateUser checks an email and password and returns the user. Unlike
+// LoginUser it issues no tokens: browser sessions are kept by the dashboard.
+func (s *UserService) AuthenticateUser(ctx context.Context, email, password string) (*database.User, error) {
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	hash := dummyHash
+	if user != nil {
+		hash = user.PasswordHash
+	}
+	matches := verifyPassword(password, hash)
+	if user == nil || !user.IsActive || !matches {
+		return nil, ErrInvalidCredentials
+	}
+	if err := s.userRepo.UpdateLastLogin(ctx, user.ID); err != nil {
+		log.Printf("failed to update last login for user %s: %v", user.ID, err)
+	}
 	return user, nil
 }
 

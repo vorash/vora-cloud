@@ -15,6 +15,9 @@ type Config struct {
 	IngressClass string
 	DBConnection string
 	BootstrapKey string
+	// PublicURL is the site origin, e.g. https://cloud.vora.sh; the dashboard
+	// accepts writes only from it.
+	PublicURL string
 	// AllowRegistration opens POST /auth/register to anyone. Off by default:
 	// users are created with an admin API key.
 	AllowRegistration bool
@@ -33,6 +36,7 @@ func LoadConfig() *Config {
 		IngressClass:      utils.GetEnv("INGRESS_CLASS", "traefik"),
 		DBConnection:      utils.GetEnv("DATABASE_URL", "postgres://postgres@localhost:5432/control-plane"),
 		BootstrapKey:      utils.GetEnv("BOOTSTRAP_KEY", ""),
+		PublicURL:         utils.GetEnv("PUBLIC_URL", ""),
 		AllowRegistration: utils.GetEnv("ALLOW_REGISTRATION", "") == "true",
 		JWTSecret:         utils.GetEnv("JWT_SECRET", ""),
 		SecretsKey:        utils.GetEnv("SECRETS_KEY", ""),
