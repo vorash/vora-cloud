@@ -20,7 +20,7 @@ func newTestRepo(t *testing.T) (*ProjectRepository, uuid.UUID) {
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
 	}
-	db, err := New(url)
+	db, err := New(url, 4, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
