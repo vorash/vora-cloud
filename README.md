@@ -47,7 +47,7 @@ The controller reads its configuration from the environment:
 | `INGRESS_CLASS` | Ingress class for apps (default `traefik`) |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Required, at least 32 characters |
-| `DB_MAX_CONNS`, `DB_MIN_CONNS` | Size of the service's connection pool (default `25` and `5`). Behind Supabase's session pooler each connection holds a backend connection, and the pooler's pool size (Supabase dashboard, Database settings) is a plan limit: keep `DB_MAX_CONNS` below it, with room for one migration connection, or connects fail with "max clients reached" |
+| `DB_MAX_CONNS`, `DB_MIN_CONNS` | Size of the service's connection pool (default `25` and `5`). Behind Supabase's session pooler each connection holds a backend connection, and the pooler's pool size (Supabase dashboard, Database settings) is a plan limit: keep `DB_MAX_CONNS` below it (migrations use the direct connection and do not count against it), or connects fail with "max clients reached" |
 | `SECRETS_KEY` | Required. Base64 of 32 random bytes (`openssl rand -base64 32`); encrypts project environment variables. Losing it makes stored variables unreadable |
 | `APPS_DOMAIN` | Base domain of app hosts: a project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. Empty leaves apps unexposed |
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
