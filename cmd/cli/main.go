@@ -5,10 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	pb "github.com/vorash/vora-cloud/api/proto"
 )
@@ -74,6 +76,11 @@ func main() {
 	client := pb.NewControlPlaneClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// The server accepts deploy, delete and status only with an admin API
+	// key. It comes from the environment so it stays out of the process list.
+	if key := os.Getenv("VORA_API_KEY"); key != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-api-key", key)
+	}
 
 	switch *action {
 	case "deploy":
@@ -256,6 +263,9 @@ func printUsage() {
 	fmt.Println("  -host string   		  Enable Traefik with hostname")
 	fmt.Println("  -ssl           		  Enable SSL for Traefik")
 	fmt.Println("  -delete-id string      Deployment ID to delete (for delete action)")
+	fmt.Println()
+	fmt.Println("Environment:")
+	fmt.Println("  VORA_API_KEY           Admin API key; deploy, delete and status need it")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println()

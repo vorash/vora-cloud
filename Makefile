@@ -24,7 +24,7 @@ proto:
 	@echo "Generating protobuf code..."
 	@protoc --go_out=. --go_opt=paths=source_relative \
 	        --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-	        api/proto/controlplane.proto
+	        api/proto/controlplane.proto api/proto/projects.proto
 	@echo "Done!"
 
 lint:
