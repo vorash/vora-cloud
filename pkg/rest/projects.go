@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -234,13 +235,17 @@ func (s *Server) deleteProject(c echo.Context) error {
 
 // listDeployments handles GET /api/v1/projects/:id/deployments
 // @Summary List a project's deployments
-// @Description Newest first
+// @Description Newest first. Returns up to `limit` deployments (default 50, at most 100). When older ones remain, the X-Next-Cursor response header holds the `before` value that fetches them.
 // @Tags deployments
 // @Produce json
 // @Security BearerAuth
 // @Security ApiKeyAuth
 // @Param id path string true "Project ID"
+// @Param limit query int false "Most deployments to return"
+// @Param before query string false "X-Next-Cursor of the previous page"
 // @Success 200 {array} DeploymentResponse
+// @Header 200 {string} X-Next-Cursor "Pass as `before` for older deployments; absent on the last page"
+// @Failure 400 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Router /projects/{id}/deployments [get]
 func (s *Server) listDeployments(c echo.Context) error {
@@ -249,13 +254,22 @@ func (s *Server) listDeployments(c echo.Context) error {
 	if err != nil {
 		return projectError(c, err)
 	}
-	deps, err := s.projects.ListDeployments(c.Request().Context(), user, id)
+	var limit int
+	if v := c.QueryParam("limit"); v != "" {
+		if limit, err = strconv.Atoi(v); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "limit must be a number"})
+		}
+	}
+	page, err := s.projects.ListDeployments(c.Request().Context(), user, id, project.Page{Limit: limit, Before: c.QueryParam("before")})
 	if err != nil {
 		return projectError(c, err)
 	}
-	out := make([]DeploymentResponse, len(deps))
-	for i := range deps {
-		out[i] = deploymentResponse(&deps[i])
+	if page.Next != "" {
+		c.Response().Header().Set("X-Next-Cursor", page.Next)
+	}
+	out := make([]DeploymentResponse, len(page.Deployments))
+	for i := range page.Deployments {
+		out[i] = deploymentResponse(&page.Deployments[i])
 	}
 	return c.JSON(http.StatusOK, out)
 }

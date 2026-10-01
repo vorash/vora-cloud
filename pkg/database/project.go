@@ -131,9 +131,17 @@ func (r *ProjectRepository) listDeployments(ctx context.Context, query string, a
 	return out, rows.Err()
 }
 
-func (r *ProjectRepository) ListDeployments(ctx context.Context, projectID uuid.UUID) ([]project.Deployment, error) {
+// ListDeployments pages by keyset on (created_at DESC, id), which
+// idx_deployments_project_id serves. The id breaks ties in ascending order, so
+// the condition is spelled out: a row comparison cannot mix directions.
+func (r *ProjectRepository) ListDeployments(ctx context.Context, projectID uuid.UUID, after *project.Cursor, limit int) ([]project.Deployment, error) {
+	if after == nil {
+		return r.listDeployments(ctx, `SELECT `+deploymentColumns+` FROM deployments
+			WHERE project_id = $1 ORDER BY created_at DESC, id LIMIT $2`, projectID, limit)
+	}
 	return r.listDeployments(ctx, `SELECT `+deploymentColumns+` FROM deployments
-		WHERE project_id = $1 ORDER BY created_at DESC, id`, projectID)
+		WHERE project_id = $1 AND (created_at < $2 OR (created_at = $2 AND id > $3))
+		ORDER BY created_at DESC, id LIMIT $4`, projectID, after.CreatedAt, after.ID, limit)
 }
 
 // LatestDeployments picks each project's newest deployment with the same

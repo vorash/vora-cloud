@@ -78,7 +78,7 @@ func TestProjectRepository(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	deps, _ := repo.ListDeployments(ctx, p.ID)
+	deps, _ := repo.ListDeployments(ctx, p.ID, nil, 100)
 	if len(deps) != 2 || deps[0].ID != d2.ID {
 		t.Errorf("list order: %+v", deps)
 	}
@@ -216,5 +216,59 @@ func TestSessionRepository(t *testing.T) {
 	}
 	if got, _ := sessions.Get(ctx, hash); got != nil {
 		t.Error("a deleted session was found")
+	}
+}
+
+// Paging by (created_at, id) must neither skip nor repeat a row, including
+// rows that share one created_at: ties are where a keyset query goes wrong.
+func TestListDeploymentsPagesByKeyset(t *testing.T) {
+	ctx := context.Background()
+	repo, owner := newTestRepo(t)
+	p := newProject(owner, "it-"+uuid.NewString()[:8])
+	if err := repo.CreateProject(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repo.DeleteProject(ctx, p.ID) })
+
+	base := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
+	for i, at := range []time.Duration{0, time.Second, time.Second, time.Second, time.Second, 2 * time.Second, 3 * time.Second} {
+		if _, err := repo.db.Exec(ctx,
+			`INSERT INTO deployments (project_id, status, image, region, created_at) VALUES ($1, 'ready', $2, 'eu', $3)`,
+			p.ID, "i:"+string(rune('0'+i)), base.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := repo.ListDeployments(ctx, p.ID, nil, 100)
+	if err != nil || len(all) != 7 {
+		t.Fatalf("all: %d rows, %v", len(all), err)
+	}
+	for _, size := range []int{1, 2, 3, 7} {
+		var got []project.Deployment
+		var after *project.Cursor
+		for {
+			page, err := repo.ListDeployments(ctx, p.ID, after, size)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, page...)
+			if len(page) < size {
+				break
+			}
+			last := page[len(page)-1]
+			after = &project.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+		}
+		if len(got) != len(all) {
+			t.Errorf("page size %d: %d rows, want %d", size, len(got), len(all))
+			continue
+		}
+		for i := range all {
+			if got[i].ID != all[i].ID {
+				t.Errorf("page size %d: row %d is %s, want %s", size, i, got[i].ID, all[i].ID)
+			}
+		}
+	}
+	if all[0].Image != "i:6" || all[6].Image != "i:0" {
+		t.Errorf("newest first: got %s ... %s", all[0].Image, all[6].Image)
 	}
 }

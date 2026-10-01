@@ -153,13 +153,13 @@ func (s *ProjectsService) ListDeployments(ctx context.Context, req *pb.ListDeplo
 	if err != nil {
 		return nil, statusError("ListDeployments", err)
 	}
-	deps, err := s.projects.ListDeployments(ctx, user, id)
+	page, err := s.projects.ListDeployments(ctx, user, id, project.Page{Limit: int(req.Limit), Before: req.Before})
 	if err != nil {
 		return nil, statusError("ListDeployments", err)
 	}
-	out := &pb.ListDeploymentsResponse{}
-	for i := range deps {
-		out.Deployments = append(out.Deployments, deploymentMessage(&deps[i]))
+	out := &pb.ListDeploymentsResponse{NextCursor: page.Next}
+	for i := range page.Deployments {
+		out.Deployments = append(out.Deployments, deploymentMessage(&page.Deployments[i]))
 	}
 	return out, nil
 }

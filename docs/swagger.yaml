@@ -900,22 +900,43 @@ paths:
       - projects
   /projects/{id}/deployments:
     get:
-      description: Newest first
+      description: Newest first. Returns up to `limit` deployments (default 50, at
+        most 100). When older ones remain, the X-Next-Cursor response header holds
+        the `before` value that fetches them.
       parameters:
       - description: Project ID
         in: path
         name: id
         required: true
         type: string
+      - description: Most deployments to return
+        in: query
+        name: limit
+        type: integer
+      - description: X-Next-Cursor of the previous page
+        in: query
+        name: before
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: OK
+          headers:
+            X-Next-Cursor:
+              description: Pass as `before` for older deployments; absent on the last
+                page
+              type: string
           schema:
             items:
               $ref: '#/definitions/rest.DeploymentResponse'
             type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:

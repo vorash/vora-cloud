@@ -133,7 +133,7 @@ func TestAnotherUserSeesNothingOfAProject(t *testing.T) {
 	calls := map[string]func() error{
 		"get project":      func() error { _, err := e.svc.GetProject(ctx, e.bob, p.ID); return err },
 		"delete project":   func() error { return e.svc.DeleteProject(ctx, e.bob, p.ID) },
-		"list deployments": func() error { _, err := e.svc.ListDeployments(ctx, e.bob, p.ID); return err },
+		"list deployments": func() error { _, err := e.svc.ListDeployments(ctx, e.bob, p.ID, Page{}); return err },
 		"get deployment":   func() error { _, err := e.svc.GetDeployment(ctx, e.bob, d.ID); return err },
 		"deploy":           func() error { _, err := e.svc.Deploy(ctx, e.bob, p.ID, DeployInput{Image: "evil:1"}); return err },
 		"redeploy":         func() error { _, err := e.svc.Redeploy(ctx, e.bob, p.ID); return err },
@@ -273,8 +273,8 @@ func TestClusterErrorLeavesAFailedRecord(t *testing.T) {
 	if err != nil || d.Status != StatusFailed || d.Error != "apiserver down" {
 		t.Errorf("got %+v, %v", d, err)
 	}
-	if deps, _ := e.svc.ListDeployments(ctx, e.alice, p.ID); len(deps) != 1 || deps[0].Status != StatusFailed {
-		t.Errorf("stored: %+v", deps)
+	if got, _ := e.svc.ListDeployments(ctx, e.alice, p.ID, Page{}); len(got.Deployments) != 1 || got.Deployments[0].Status != StatusFailed {
+		t.Errorf("stored: %+v", got.Deployments)
 	}
 }
 
@@ -421,5 +421,136 @@ func TestFailedApplyIsNeverReportedReady(t *testing.T) {
 	// failed apply must not have failed it as "superseded".
 	if got, _ := e.svc.GetDeployment(ctx, e.alice, first.ID); strings.Contains(got.Error, "superseded") {
 		t.Errorf("first was superseded by a deployment that never applied: %s %q", got.Status, got.Error)
+	}
+}
+
+func TestDeploymentsArePagedNewestFirstWithoutGapsOrRepeats(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	var want []uuid.UUID // newest first
+	for i := 0; i < 5; i++ {
+		want = append([]uuid.UUID{e.deploy(t, p, "reg/web:"+string(rune('a'+i))).ID}, want...)
+	}
+
+	var got []uuid.UUID
+	before := ""
+	for pages := 0; ; pages++ {
+		if pages > len(want) {
+			t.Fatal("paging does not end")
+		}
+		page, err := e.svc.ListDeployments(ctx, e.alice, p.ID, Page{Limit: 2, Before: before})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range page.Deployments {
+			got = append(got, d.ID)
+		}
+		if page.Next == "" {
+			if len(page.Deployments) == 0 {
+				t.Error("the last page must not be empty when older ones were promised")
+			}
+			break
+		}
+		if len(page.Deployments) != 2 {
+			t.Errorf("a page with a next cursor holds %d, want the limit", len(page.Deployments))
+		}
+		before = page.Next
+		// A deployment made between two requests must not shift the next page.
+		if pages == 0 {
+			e.deploy(t, p, "reg/web:new")
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d deployments, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("position %d: got %s, want %s", i, got[i], want[i])
+		}
+	}
+}
+
+func TestPageSizeDefaultsAndIsCapped(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	for i := 0; i < MaxPageSize+5; i++ {
+		e.deploy(t, p, "reg/web:1")
+	}
+	for name, c := range map[string]struct{ limit, want int }{
+		"default":  {0, DefaultPageSize},
+		"asked":    {7, 7},
+		"too many": {MaxPageSize * 10, MaxPageSize},
+	} {
+		page, err := e.svc.ListDeployments(ctx, e.alice, p.ID, Page{Limit: c.limit})
+		if err != nil || len(page.Deployments) != c.want || page.Next == "" {
+			t.Errorf("%s: %d deployments, next %q, %v; want %d with an older page", name, len(page.Deployments), page.Next, err, c.want)
+		}
+	}
+}
+
+func TestBadPagingInputIsInvalidNotAnInternalError(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	for name, page := range map[string]Page{
+		"negative limit": {Limit: -1},
+		"not base64":     {Before: "%%%"},
+		"no separator":   {Before: "MTIz"},
+		"bad id":         {Before: "MTIzLm5vcGU"},
+	} {
+		if _, err := e.svc.ListDeployments(ctx, e.alice, p.ID, page); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: got %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+// A cursor carries a position, not a right: another user gets the same
+// "not found" for a project they do not own, with or without it.
+func TestACursorDoesNotOpenAnotherUsersProject(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	for i := 0; i < 3; i++ {
+		e.deploy(t, p, "reg/web:1")
+	}
+	page, _ := e.svc.ListDeployments(ctx, e.alice, p.ID, Page{Limit: 1})
+	if page.Next == "" {
+		t.Fatal("expected an older page")
+	}
+	if _, err := e.svc.ListDeployments(ctx, e.bob, p.ID, Page{Before: page.Next}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("got %v, want ErrNotFound", err)
+	}
+}
+
+// Redeploy must run the newest image however long the history is.
+func TestRedeployUsesTheNewestDeploymentOfALongHistory(t *testing.T) {
+	e := newEnv(t)
+	p := e.project(t, e.alice, "web")
+	for i := 0; i < MaxPageSize+3; i++ {
+		e.deploy(t, p, "reg/web:old")
+	}
+	e.deploy(t, p, "reg/web:newest")
+	d, err := e.svc.Redeploy(ctx, e.alice, p.ID)
+	if err != nil || d.Image != "reg/web:newest" {
+		t.Errorf("redeployed %v, %v; want reg/web:newest", d, err)
+	}
+}
+
+// Superseding reads the unfinished deployments of every project, so it must
+// fail only the deploying project's own older ones.
+func TestSupersedeLeavesOtherProjectsAlone(t *testing.T) {
+	e := newEnv(t)
+	web := e.project(t, e.alice, "web")
+	other := e.project(t, e.bob, "other")
+	elsewhere, err := e.svc.Deploy(ctx, e.bob, other.ID, DeployInput{Image: "reg/other:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := e.deploy(t, web, "reg/web:1")
+	e.deploy(t, web, "reg/web:2")
+
+	if got, _ := e.svc.GetDeployment(ctx, e.alice, first.ID); got.Status != StatusFailed {
+		t.Errorf("the project's older deployment: %s, want failed", got.Status)
+	}
+	if got, _ := e.svc.GetDeployment(ctx, e.bob, elsewhere.ID); got.Status != StatusDeploying {
+		t.Errorf("another project's deployment: %s, want deploying", got.Status)
 	}
 }

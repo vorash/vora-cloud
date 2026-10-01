@@ -113,8 +113,9 @@ type Store interface {
 
 	CreateDeployment(ctx context.Context, d *Deployment) error
 	GetDeployment(ctx context.Context, id uuid.UUID) (*Deployment, error)
-	// ListDeployments returns a project's deployments, newest first.
-	ListDeployments(ctx context.Context, project uuid.UUID) ([]Deployment, error)
+	// ListDeployments returns at most limit of a project's deployments, newest
+	// first, starting after the cursor (the newest if nil).
+	ListDeployments(ctx context.Context, project uuid.UUID, after *Cursor, limit int) ([]Deployment, error)
 	// LatestDeployments returns the newest deployment of each of the owner's
 	// projects that has one, by project id.
 	LatestDeployments(ctx context.Context, owner uuid.UUID) (map[uuid.UUID]Deployment, error)

@@ -82,10 +82,13 @@ message DeleteProjectResponse {}
 
 message ListDeploymentsRequest {
     string project_id = 1;
+    int32 limit = 2;   // 0 means the default (50); more than 100 is cut to 100
+    string before = 3; // next_cursor of an earlier page; empty starts at the newest
 }
 
 message ListDeploymentsResponse {
     repeated Deployment deployments = 1; // newest first
+    string next_cursor = 2;              // pass as before for older ones; empty on the last page
 }
 
 message GetDeploymentRequest {

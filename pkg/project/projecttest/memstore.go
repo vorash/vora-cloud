@@ -24,7 +24,12 @@ func New() *MemStore {
 	return &MemStore{projects: map[uuid.UUID]*project.Project{}, Env: map[uuid.UUID]map[string][]byte{}, Clock: time.Now()}
 }
 
-func (m *MemStore) tick() time.Time { m.Clock = m.Clock.Add(time.Millisecond); return m.Clock }
+// tick advances the clock. Times are whole microseconds, as in the database,
+// so a cursor made from one compares equal to it.
+func (m *MemStore) tick() time.Time {
+	m.Clock = m.Clock.Add(time.Millisecond).Truncate(time.Microsecond)
+	return m.Clock
+}
 
 func (m *MemStore) CreateProject(_ context.Context, p *project.Project) error {
 	for _, q := range m.projects {
@@ -88,12 +93,22 @@ func (m *MemStore) GetDeployment(_ context.Context, id uuid.UUID) (*project.Depl
 	return nil, project.ErrNotFound
 }
 
-func (m *MemStore) ListDeployments(_ context.Context, projectID uuid.UUID) ([]project.Deployment, error) {
+func (m *MemStore) ListDeployments(_ context.Context, projectID uuid.UUID, after *project.Cursor, limit int) ([]project.Deployment, error) {
 	var out []project.Deployment
-	for i := len(m.deps) - 1; i >= 0; i-- {
-		if m.deps[i].ProjectID == projectID {
-			out = append(out, *m.deps[i])
+	for i := len(m.deps) - 1; i >= 0 && len(out) < limit; i-- {
+		d := m.deps[i]
+		if d.ProjectID != projectID {
+			continue
 		}
+		// The same condition as the database: older than the cursor, or the
+		// same instant with a larger id.
+		if after != nil {
+			older := d.CreatedAt.Before(after.CreatedAt) || d.CreatedAt.Equal(after.CreatedAt) && d.ID.String() > after.ID.String()
+			if !older {
+				continue
+			}
+		}
+		out = append(out, *d)
 	}
 	return out, nil
 }
