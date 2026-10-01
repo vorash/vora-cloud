@@ -3,6 +3,8 @@ package k3s
 import (
 	"context"
 	"errors"
+	"net/url"
+	"syscall"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -10,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
@@ -391,8 +394,39 @@ func TestStatusCarriesTheFailureReason(t *testing.T) {
 		Type: appsv1.DeploymentProgressing, Status: corev1.ConditionFalse,
 		Reason: "ProgressDeadlineExceeded", Message: "timed out progressing",
 	})
-	if got := statusOf(dep); got.Message != "timed out progressing" {
-		t.Errorf("message = %q", got.Message)
+	got := statusOf(dep)
+	if got.Message != "timed out progressing" || got.Reason != "ProgressDeadlineExceeded" {
+		t.Errorf("reason %q, message %q", got.Reason, got.Message)
+	}
+}
+
+// The service tells an unreachable cluster from a refused spec by these
+// markers, not by reading the cluster's text.
+func TestClusterErrorsAreMarkedForTheCaller(t *testing.T) {
+	gr := schema.GroupResource{Resource: "deployments"}
+	refused := func(err error) bool { return errors.Is(err, deploy.ErrRefused) }
+	unreachable := func(err error) bool { return errors.Is(err, deploy.ErrUnreachable) }
+	cases := []struct {
+		name string
+		err  error
+		is   func(error) bool
+	}{
+		{"connection refused", &url.Error{Op: "Patch", URL: "https://127.0.0.1:1/api", Err: syscall.ECONNREFUSED}, unreachable},
+		{"deadline", context.DeadlineExceeded, unreachable},
+		{"service unavailable", apierrors.NewServiceUnavailable("etcd"), unreachable},
+		{"invalid", apierrors.NewInvalid(schema.GroupKind{Kind: "Deployment"}, "web", nil), refused},
+		{"forbidden", apierrors.NewForbidden(gr, "web", errors.New("quota")), refused},
+		{"bad request", apierrors.NewBadRequest("no"), refused},
+	}
+	for _, c := range cases {
+		err := clusterErr("apply deployment", c.err)
+		if !c.is(err) || !errors.Is(err, c.err) {
+			t.Errorf("%s: %v is not marked, or lost its cause", c.name, err)
+		}
+	}
+	other := clusterErr("apply deployment", apierrors.NewInternalError(errors.New("x")))
+	if errors.Is(other, deploy.ErrRefused) || errors.Is(other, deploy.ErrUnreachable) {
+		t.Errorf("an unclassified error must stay unmarked: %v", other)
 	}
 }
 
