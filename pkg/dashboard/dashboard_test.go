@@ -78,6 +78,7 @@ type env struct {
 	dash     *Dashboard
 	sessions *fakeSessions
 	projects *project.Service
+	store    *projecttest.MemStore
 }
 
 func newEnv(t *testing.T) *env {
@@ -90,7 +91,8 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := project.NewService(projecttest.New(), reg, box, "cloud.example.com")
+	store := projecttest.New()
+	svc := project.NewService(store, reg, box, "cloud.example.com")
 	ss := &fakeSessions{rows: map[string]*database.Session{}}
 	d, err := New(Config{
 		Sessions: ss, Users: fakeUsers{}, Projects: svc, Regions: reg.Regions(),
@@ -102,7 +104,7 @@ func newEnv(t *testing.T) *env {
 	}
 	e := echo.New()
 	d.Register(e)
-	return &env{e: e, dash: d, sessions: ss, projects: svc}
+	return &env{e: e, dash: d, sessions: ss, projects: svc, store: store}
 }
 
 type resp struct {
@@ -393,7 +395,7 @@ func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
 	for _, path := range []string{"/login", "/assets/app.css", "/"} {
 		h := v.send("GET", path, nil, nil, nil).header
 		csp := h.Get("Content-Security-Policy")
-		if !strings.Contains(csp, "default-src 'none'") || strings.Contains(csp, "script-src") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		if csp != wantPolicy {
 			t.Errorf("%s CSP: %q", path, csp)
 		}
 		if h.Get("X-Content-Type-Options") != "nosniff" || h.Get("Referrer-Policy") != "same-origin" || h.Get("X-Frame-Options") != "DENY" {

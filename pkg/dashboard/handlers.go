@@ -31,13 +31,15 @@ type page struct {
 	Data any
 
 	// Set by render. Shell is "app" (the navigation rail, signed in), "auth"
-	// (sign-in) or "plain" (other signed-out pages); Asset versions the stylesheet.
-	Shell string
-	Asset string
+	// (sign-in) or "plain" (other signed-out pages); Asset and Script version the
+	// stylesheet and the script.
+	Shell  string
+	Asset  string
+	Script string
 }
 
 func (d *Dashboard) render(c echo.Context, status int, name string, p page) error {
-	p.Asset = d.cssVersion
+	p.Asset, p.Script = d.versions["app.css"], d.versions["app.js"]
 	if csrf, ok := c.Get(csrfKey).(string); ok {
 		p.CSRF, p.User, p.Shell = csrf, sessionOf(c).UserName, "app"
 	} else if name == "login" {
@@ -66,7 +68,7 @@ func (d *Dashboard) serverError(c echo.Context, err error) error {
 	log.Printf("dashboard %s %s: %v", c.Request().Method, c.Path(), err)
 	c.Set(csrfKey, nil) // the session may be the problem; render as anonymous
 	var buf bytes.Buffer
-	p := page{Title: statusTitle(http.StatusInternalServerError), Code: http.StatusInternalServerError, Message: "Try again in a moment.", Shell: "plain", Asset: d.cssVersion}
+	p := page{Title: statusTitle(http.StatusInternalServerError), Code: http.StatusInternalServerError, Message: "Try again in a moment.", Shell: "plain", Asset: d.versions["app.css"], Script: d.versions["app.js"]}
 	if t, ok := d.pages["error"]; ok && t.ExecuteTemplate(&buf, "base", p) == nil {
 		return c.HTMLBlob(http.StatusInternalServerError, buf.Bytes())
 	}
@@ -169,6 +171,9 @@ type projectData struct {
 	Latest *project.Deployment
 	// Next is the cursor of the older page, empty on the last.
 	Next string
+	// Live is set while the newest deployment is still in progress; the page then
+	// offers the event stream.
+	Live bool
 }
 
 // projectID reads the :id parameter; a malformed id is "not found", the same
@@ -222,6 +227,7 @@ func (d *Dashboard) showProjectWith(c echo.Context, status int, msg string) erro
 			data.Latest = &newest.Deployments[0]
 		}
 	}
+	data.Live = data.Latest != nil && !data.Latest.Status.Final()
 	return d.render(c, status, "project", page{Title: p.Name, Error: msg, Data: data})
 }
 

@@ -3,6 +3,7 @@ package projecttest
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,9 @@ import (
 // MemStore is an in-memory project.Store for tests. It holds no ownership logic
 // on purpose: tests must fail when the Service's own check goes away.
 type MemStore struct {
+	// mu makes Move and ListDeployments safe together: a test settles a rollout
+	// while a stream polls it. The rest of the store is for one goroutine.
+	mu       sync.Mutex
 	projects map[uuid.UUID]*project.Project
 	deps     []*project.Deployment // oldest first
 	Env      map[uuid.UUID]map[string][]byte
@@ -94,6 +98,8 @@ func (m *MemStore) GetDeployment(_ context.Context, id uuid.UUID) (*project.Depl
 }
 
 func (m *MemStore) ListDeployments(_ context.Context, projectID uuid.UUID, after *project.Cursor, limit int) ([]project.Deployment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var out []project.Deployment
 	for i := len(m.deps) - 1; i >= 0 && len(out) < limit; i-- {
 		d := m.deps[i]
@@ -137,6 +143,8 @@ func (m *MemStore) ListActive(context.Context) ([]project.Deployment, error) {
 }
 
 func (m *MemStore) Move(_ context.Context, id uuid.UUID, from, to project.Status, errText string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	d := m.find(id)
 	if d == nil {
 		return project.ErrNotFound

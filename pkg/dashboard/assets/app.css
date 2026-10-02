@@ -2,7 +2,7 @@
    A left rail with the primary action, label-over-value rows, a timeline of deployments and an
    overview panel beside the work; a centred card for sign-in. It collapses to a top bar on phones.
    Tokens are the vora.sh names (landing src/landing/cleanroom.css); day and night follow the OS.
-   No script: motion is CSS only and off under prefers-reduced-motion.
+   Motion is CSS only and off under prefers-reduced-motion.
    Fonts (self-hosted, see fonts/): Switzer © Indian Type Foundry, ITF Free Font License (FFL.txt);
    Fragment Mono © The Fragment-Mono Project Authors, SIL OFL 1.1 (OFL.txt). */
 
@@ -71,6 +71,7 @@ h1, h2, h3 { margin: 0; }
 .page-sub { margin: 4px 0 0; color: var(--muted); }
 .page-sub a { text-decoration: none; }
 .page-sub a:hover { text-decoration: underline; }
+.page-sub .btn { margin-left: 10px; vertical-align: middle; }
 .head-actions { display: flex; gap: 8px; }
 .section-title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }

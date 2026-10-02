@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// funcs are the helpers the templates use. Times are rendered here, not in the
-// browser, because the pages have no script: "3 hours ago" is as of the request,
-// and the exact time goes in a title, always in UTC.
+// funcs are the helpers the templates use. Times are rendered here so the pages
+// work without the script: "3 hours ago" is as of the request (the script then
+// keeps it current), and the exact time goes in a title, always in UTC.
 func (d *Dashboard) funcs() template.FuncMap {
 	return template.FuncMap{
 		"ago":   func(t time.Time) string { return relTime(d.now(), t) },
