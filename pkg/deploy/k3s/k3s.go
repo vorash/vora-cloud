@@ -6,7 +6,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	stderrors "errors"
 	"fmt"
+	"net"
 	"sort"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -99,30 +101,45 @@ func (d *Deployer) Deploy(ctx context.Context, spec deploy.Spec) error {
 	opts := metav1.ApplyOptions{FieldManager: fieldManager, Force: true}
 
 	if _, err := d.client.CoreV1().Namespaces().Apply(ctx, namespace(spec), opts); err != nil {
-		return fmt.Errorf("apply namespace %s: %w", ns, err)
+		return clusterErr(fmt.Sprintf("apply namespace %s", ns), err)
 	}
 	if _, err := d.client.CoreV1().Secrets(ns).Apply(ctx, envSecret(spec), opts); err != nil {
-		return fmt.Errorf("apply env secret: %w", err)
+		return clusterErr("apply env secret", err)
 	}
 	if _, err := d.client.AppsV1().Deployments(ns).Apply(ctx, deployment(spec), opts); err != nil {
-		return fmt.Errorf("apply deployment: %w", err)
+		return clusterErr("apply deployment", err)
 	}
 	if _, err := d.client.CoreV1().Services(ns).Apply(ctx, service(spec), opts); err != nil {
-		return fmt.Errorf("apply service: %w", err)
+		return clusterErr("apply service", err)
 	}
 
 	// An app whose host was removed must stop being routed.
 	if spec.Host == "" {
 		err := d.client.NetworkingV1().Ingresses(ns).Delete(ctx, spec.Name, metav1.DeleteOptions{})
 		if err != nil && !errors.IsNotFound(err) {
-			return fmt.Errorf("delete ingress: %w", err)
+			return clusterErr("delete ingress", err)
 		}
 		return nil
 	}
 	if _, err := d.client.NetworkingV1().Ingresses(ns).Apply(ctx, ingress(spec, d.ingressClass), opts); err != nil {
-		return fmt.Errorf("apply ingress: %w", err)
+		return clusterErr("apply ingress", err)
 	}
 	return nil
+}
+
+// clusterErr wraps a failed cluster call so a caller can tell an unreachable
+// cluster from a refused spec with errors.Is, without reading the text. The
+// text stays as it was, for the operator's log.
+func clusterErr(what string, err error) error {
+	var netErr net.Error
+	switch {
+	case errors.IsInvalid(err) || errors.IsBadRequest(err) || errors.IsForbidden(err):
+		return fmt.Errorf("%s: %w: %w", what, deploy.ErrRefused, err)
+	case stderrors.As(err, &netErr) || stderrors.Is(err, context.DeadlineExceeded) ||
+		errors.IsServiceUnavailable(err) || errors.IsServerTimeout(err) || errors.IsTimeout(err):
+		return fmt.Errorf("%s: %w: %w", what, deploy.ErrUnreachable, err)
+	}
+	return fmt.Errorf("%s: %w", what, err)
 }
 
 func (d *Deployer) Status(ctx context.Context, project, name string) (deploy.Status, error) {
@@ -314,7 +331,7 @@ func statusOf(dep *appsv1.Deployment) deploy.Status {
 
 	for _, c := range dep.Status.Conditions {
 		if c.Type == appsv1.DeploymentProgressing && c.Status == corev1.ConditionFalse && c.Reason == "ProgressDeadlineExceeded" {
-			st.State, st.Message = deploy.StateFailed, c.Message
+			st.State, st.Reason, st.Message = deploy.StateFailed, c.Reason, c.Message
 			return st
 		}
 	}

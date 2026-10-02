@@ -80,6 +80,7 @@ node.
 - The dashboard is its own package (`pkg/dashboard`) with its own session table
   (migration 006), and can be moved to a separate service later without
   touching the API.
-- Cluster error text (for example from a failed apply) is shown to the user as
-  the deployment's error. It can name internal addresses; sanitising it is a
-  follow-up.
+- A failed deployment's error is a short reason chosen by the project service
+  (rollout timed out, image not pulled, cluster unreachable, spec refused, or a
+  generic text with the deployment id). The cluster's own text can name
+  internal addresses, so it goes to the log only.

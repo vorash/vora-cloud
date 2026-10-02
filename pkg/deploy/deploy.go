@@ -13,6 +13,11 @@ import (
 var (
 	ErrUnknownRegion = errors.New("unknown region")
 	ErrInvalidSpec   = errors.New("invalid spec")
+	// ErrUnreachable marks a Deploy that failed because the cluster could not
+	// be reached, as opposed to the cluster answering and saying no.
+	ErrUnreachable = errors.New("cluster unreachable")
+	// ErrRefused marks a Deploy the cluster answered and rejected.
+	ErrRefused = errors.New("cluster refused the spec")
 )
 
 // State is where a deployment is in its rollout.
@@ -57,6 +62,10 @@ type Status struct {
 	Desired int32
 	Updated int32
 	Ready   int32
+	// Reason is the cluster's short code for a failure, such as
+	// "ProgressDeadlineExceeded". Message is its free text, which can name
+	// internal hosts: keep it out of anything a user sees.
+	Reason  string
 	Message string
 }
 
