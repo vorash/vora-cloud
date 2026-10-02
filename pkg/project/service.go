@@ -273,7 +273,8 @@ func (s *Service) deploy(ctx context.Context, p *Project, in DeployInput) (*Depl
 	// cluster's rollout, and until the new spec is applied that is the old
 	// rollout's status: a "deploying" row could be marked ready for it.
 	if err := deployer.Deploy(ctx, spec); err != nil {
-		if err := s.move(ctx, d, StatusFailed, err.Error()); err != nil {
+		log.Printf("deployment %s: apply to %s: %v", d.ID, p.Region, err)
+		if err := s.move(ctx, d, StatusFailed, deployFailure(d, err)); err != nil {
 			return nil, err
 		}
 		return d, nil
@@ -366,7 +367,8 @@ func (s *Service) reconcileOne(ctx context.Context, d *Deployment) error {
 	case deploy.StateReady:
 		return s.move(ctx, d, StatusReady, "")
 	case deploy.StateFailed:
-		return s.move(ctx, d, StatusFailed, st.Message)
+		log.Printf("deployment %s: rollout failed: %s: %s", d.ID, st.Reason, st.Message)
+		return s.move(ctx, d, StatusFailed, rolloutFailure(d, st))
 	}
 	// Pending, rolling out, or not visible yet.
 	if time.Since(d.UpdatedAt) > rolloutTimeout {

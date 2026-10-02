@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -237,16 +240,50 @@ func TestDeployReachesReadyWhenTheRolloutFinishes(t *testing.T) {
 	}
 }
 
-func TestFailedRolloutIsRecordedWithItsReason(t *testing.T) {
-	e := newEnv(t)
-	p := e.project(t, e.alice, "web")
-	d := e.deploy(t, p, "reg/web:1")
+// internal is what a cluster's own message can carry and a user must never see.
+const internal = `Patch "https://10.42.0.7:6443/api/v1/namespaces/p-web": dial tcp 10.42.0.7:6443`
 
-	e.eu.status = deploy.Status{State: deploy.StateFailed, Message: "ImagePullBackOff"}
-	e.svc.Reconcile(ctx)
-	got, _ := e.svc.GetDeployment(ctx, e.alice, d.ID)
-	if got.Status != StatusFailed || got.Error != "ImagePullBackOff" {
-		t.Errorf("got %s %q", got.Status, got.Error)
+// captureLog returns what the standard logger writes until the test ends.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	return &buf
+}
+
+func TestFailedRolloutShowsAReasonAndLogsTheClusterText(t *testing.T) {
+	cases := []struct {
+		name   string
+		status deploy.Status
+		want   string // a part of the reason shown to the user
+	}{
+		{"deadline", deploy.Status{Reason: "ProgressDeadlineExceeded"}, "did not become ready in time"},
+		{"pull backoff", deploy.Status{Reason: "ImagePullBackOff"}, `image "reg/web:1" could not be pulled`},
+		{"pull error", deploy.Status{Reason: "ErrImagePull"}, `image "reg/web:1" could not be pulled`},
+		{"unknown reason", deploy.Status{Reason: "Evicted"}, "Quote deployment "},
+		{"no reason", deploy.Status{}, "Quote deployment "},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := captureLog(t)
+			e := newEnv(t)
+			d := e.deploy(t, e.project(t, e.alice, "web"), "reg/web:1")
+
+			c.status.State, c.status.Message = deploy.StateFailed, internal
+			e.eu.status = c.status
+			e.svc.Reconcile(ctx)
+			got, _ := e.svc.GetDeployment(ctx, e.alice, d.ID)
+			if got.Status != StatusFailed || !strings.Contains(got.Error, c.want) {
+				t.Errorf("got %s %q, want a reason with %q", got.Status, got.Error, c.want)
+			}
+			if strings.Contains(got.Error, "10.42.0.7") {
+				t.Errorf("the cluster's address reached the user: %q", got.Error)
+			}
+			if !strings.Contains(logs.String(), d.ID.String()) || !strings.Contains(logs.String(), "10.42.0.7") {
+				t.Errorf("the operator's log lacks the deployment id or the raw message: %q", logs)
+			}
+		})
 	}
 }
 
@@ -264,17 +301,38 @@ func TestStuckRolloutTimesOut(t *testing.T) {
 	}
 }
 
-func TestClusterErrorLeavesAFailedRecord(t *testing.T) {
-	e := newEnv(t)
-	p := e.project(t, e.alice, "web")
-	e.eu.deployErr = errors.New("apiserver down")
-
-	d, err := e.svc.Deploy(ctx, e.alice, p.ID, DeployInput{Image: "reg/web:1"})
-	if err != nil || d.Status != StatusFailed || d.Error != "apiserver down" {
-		t.Errorf("got %+v, %v", d, err)
+func TestClusterErrorLeavesAFailedRecordWithAReason(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"unreachable", fmt.Errorf("apply namespace p-web: %w: %w", deploy.ErrUnreachable, errors.New(internal)), "could not be reached"},
+		{"refused", fmt.Errorf("apply deployment: %w: %w", deploy.ErrRefused, errors.New(internal)), "refused the deployment"},
+		{"invalid spec", fmt.Errorf("%w: host %q", deploy.ErrInvalidSpec, internal), "refused the deployment"},
+		{"anything else", errors.New(internal), "Quote deployment "},
 	}
-	if deps, _ := e.svc.ListDeployments(ctx, e.alice, p.ID); len(deps) != 1 || deps[0].Status != StatusFailed {
-		t.Errorf("stored: %+v", deps)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := captureLog(t)
+			e := newEnv(t)
+			p := e.project(t, e.alice, "web")
+			e.eu.deployErr = c.err
+
+			d, err := e.svc.Deploy(ctx, e.alice, p.ID, DeployInput{Image: "reg/web:1"})
+			if err != nil || d.Status != StatusFailed || !strings.Contains(d.Error, c.want) {
+				t.Fatalf("got %+v, %v, want a failed record with %q", d, err, c.want)
+			}
+			if strings.Contains(d.Error, "10.42.0.7") {
+				t.Errorf("the cluster's address reached the user: %q", d.Error)
+			}
+			if deps, _ := e.svc.ListDeployments(ctx, e.alice, p.ID); len(deps) != 1 || deps[0].Error != d.Error {
+				t.Errorf("stored: %+v, want the same reason as the returned record", deps)
+			}
+			if !strings.Contains(logs.String(), d.ID.String()) || !strings.Contains(logs.String(), "10.42.0.7") {
+				t.Errorf("the operator's log lacks the deployment id or the raw message: %q", logs)
+			}
+		})
 	}
 }
 
