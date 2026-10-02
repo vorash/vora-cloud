@@ -158,17 +158,17 @@ func (d *Dashboard) createProject(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/projects/"+p.ID.String())
 }
 
+// deploymentsPerPage is how many deployments the project page lists at once.
+const deploymentsPerPage = 20
+
 type projectData struct {
 	Project     *project.Project
-	Deployments []project.Deployment // newest first
-}
-
-// Latest is the newest deployment, nil if there is none.
-func (p projectData) Latest() *project.Deployment {
-	if len(p.Deployments) == 0 {
-		return nil
-	}
-	return &p.Deployments[0]
+	Deployments []project.Deployment // newest first, one page
+	// Latest is the project's newest deployment, nil if there is none. It is
+	// not always the first of Deployments: the page may be an older one.
+	Latest *project.Deployment
+	// Next is the cursor of the older page, empty on the last.
+	Next string
 }
 
 // projectID reads the :id parameter; a malformed id is "not found", the same
@@ -200,11 +200,29 @@ func (d *Dashboard) showProjectWith(c echo.Context, status int, msg string) erro
 	if err != nil {
 		return d.serverError(c, err)
 	}
-	deps, err := d.cfg.Projects.ListDeployments(ctx, user, id)
+	before := c.QueryParam("before")
+	deps, err := d.cfg.Projects.ListDeployments(ctx, user, id, project.Page{Limit: deploymentsPerPage, Before: before})
+	if errors.Is(err, project.ErrInvalid) { // a cursor that was edited by hand
+		return d.notFound(c)
+	}
 	if err != nil {
 		return d.serverError(c, err)
 	}
-	return d.render(c, status, "project", page{Title: p.Name, Error: msg, Data: projectData{Project: p, Deployments: deps}})
+	data := projectData{Project: p, Deployments: deps.Deployments, Next: deps.Next}
+	switch {
+	case before == "" && len(deps.Deployments) > 0:
+		data.Latest = &deps.Deployments[0]
+	case before != "":
+		// An older page: the overview and Redeploy still go by the newest.
+		newest, err := d.cfg.Projects.ListDeployments(ctx, user, id, project.Page{Limit: 1})
+		if err != nil {
+			return d.serverError(c, err)
+		}
+		if len(newest.Deployments) > 0 {
+			data.Latest = &newest.Deployments[0]
+		}
+	}
+	return d.render(c, status, "project", page{Title: p.Name, Error: msg, Data: data})
 }
 
 // afterDeploy answers a deploy or redeploy: back to the project page at the new

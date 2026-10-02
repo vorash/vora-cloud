@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bytes"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -211,14 +212,16 @@ func TestProjectPageShowsWhyADeploymentFailed(t *testing.T) {
 	now := time.Date(2026, 9, 30, 14, 32, 0, 0, time.UTC)
 	v.dash.now = func() time.Time { return now }
 	var buf bytes.Buffer
+	failed := project.Deployment{
+		ID: uuid.New(), Status: project.StatusFailed, Image: "reg/shop:2", URL: "https://shop.eu.cloud.example.com",
+		Error: "boom <b>bad</b>", CreatedAt: now.Add(-2 * time.Hour),
+	}
 	err := v.dash.pages["project"].ExecuteTemplate(&buf, "base", page{
 		Title: "Shop", Shell: "app", User: "Alice", CSRF: "tok", Asset: "v1",
 		Data: projectData{
-			Project: &project.Project{ID: uuid.New(), Name: "Shop", Slug: "shop", Region: "eu"},
-			Deployments: []project.Deployment{{
-				ID: uuid.New(), Status: project.StatusFailed, Image: "reg/shop:2", URL: "https://shop.eu.cloud.example.com",
-				Error: "boom <b>bad</b>", CreatedAt: now.Add(-2 * time.Hour),
-			}},
+			Project:     &project.Project{ID: uuid.New(), Name: "Shop", Slug: "shop", Region: "eu"},
+			Deployments: []project.Deployment{failed},
+			Latest:      &failed,
 		},
 	})
 	if err != nil {
@@ -266,5 +269,60 @@ func TestNewProjectFormKeepsTheChoicesAfterARefusal(t *testing.T) {
 		if r.code != http.StatusUnprocessableEntity || !strings.Contains(r.body, want) {
 			t.Errorf("refused form (%d) lacks %q", r.code, want)
 		}
+	}
+}
+
+// A long history must not make the page grow: it lists the newest rows and
+// links to the older ones, and the overview and Redeploy keep going by the
+// newest deployment, not by the first row of whichever page is open.
+func TestProjectPageListsTheNewestDeploymentsAndLinksToOlderOnes(t *testing.T) {
+	v := newEnv(t)
+	alice := v.login(t, "alice@example.com", "alice-pass")
+	shop := v.createProject(t, alice, "Shop", "shop")
+	tok := v.csrf(t, alice)
+	total := deploymentsPerPage + 5
+	for i := 1; i <= total; i++ {
+		img := fmt.Sprintf("reg/shop:%d", i)
+		if r := v.send("POST", shop+"/deployments", url.Values{"csrf": {tok}, "image": {img}}, alice, nil); r.code != http.StatusSeeOther {
+			t.Fatalf("deploy %s: %d", img, r.code)
+		}
+	}
+	image := func(i int) string { return fmt.Sprintf("<code>reg/shop:%d</code>", i) }
+
+	first := v.send("GET", shop, nil, alice, nil).body
+	if n := strings.Count(first, `class="tl-item"`); n != deploymentsPerPage {
+		t.Errorf("first page lists %d deployments, want %d", n, deploymentsPerPage)
+	}
+	if !strings.Contains(first, image(total)) || strings.Contains(first, image(1)) {
+		t.Error("the first page must hold the newest deployments and not the oldest")
+	}
+	m := regexp.MustCompile(`href="(` + regexp.QuoteMeta(shop) + `\?before=[^"]+)">Show older deployments`).FindStringSubmatch(first)
+	if m == nil {
+		t.Fatal("the first page has no link to the older deployments")
+	}
+
+	older := v.send("GET", m[1], nil, alice, nil)
+	if older.code != http.StatusOK {
+		t.Fatalf("older page: %d", older.code)
+	}
+	if n := strings.Count(older.body, `class="tl-item"`); n != total-deploymentsPerPage {
+		t.Errorf("older page lists %d deployments, want %d", n, total-deploymentsPerPage)
+	}
+	if !strings.Contains(older.body, image(1)) || !strings.Contains(older.body, image(total-deploymentsPerPage)) || strings.Contains(older.body, image(total)) {
+		t.Error("the older page must continue exactly where the first ended")
+	}
+	if strings.Contains(older.body, "Show older deployments") {
+		t.Error("the last page must not offer older deployments")
+	}
+	if !strings.Contains(older.body, `<dd class="mono">reg/shop:`+fmt.Sprint(total)+`</dd>`) || !strings.Contains(older.body, "Redeploy latest image") {
+		t.Error("on an older page the overview and Redeploy must still go by the newest deployment")
+	}
+
+	bob := v.login(t, "bob@example.com", "bob-pass")
+	if r := v.send("GET", m[1], nil, bob, nil); r.code != http.StatusNotFound {
+		t.Errorf("bob on alice's older page: %d, want 404", r.code)
+	}
+	if r := v.send("GET", shop+"?before=not-a-cursor", nil, alice, nil); r.code != http.StatusNotFound {
+		t.Errorf("a made-up cursor: %d, want 404", r.code)
 	}
 }

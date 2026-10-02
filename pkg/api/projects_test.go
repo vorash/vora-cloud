@@ -97,3 +97,31 @@ func TestProjectsServiceMapsErrorsToCodes(t *testing.T) {
 	_, err = s.Rollback(as(alice), &pb.RollbackRequest{ProjectId: uuid.NewString(), DeploymentId: "nope"})
 	wantCode(t, "bad deployment id", err, codes.InvalidArgument)
 }
+
+func TestProjectsServiceListsDeploymentsInPages(t *testing.T) {
+	s := newProjectsService(t)
+	p, err := s.CreateProject(as(alice), &pb.CreateProjectRequest{Name: "Web", Slug: "web", Region: "eu"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, img := range []string{"reg/web:1", "reg/web:2", "reg/web:3"} {
+		if _, err := s.DeployImage(as(alice), &pb.DeployImageRequest{ProjectId: p.Id, Image: img}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := s.ListDeployments(as(alice), &pb.ListDeploymentsRequest{ProjectId: p.Id})
+	if err != nil || len(all.Deployments) != 3 || all.NextCursor != "" {
+		t.Fatalf("no paging asked: %+v, %v; want everything and no cursor", all, err)
+	}
+	first, err := s.ListDeployments(as(alice), &pb.ListDeploymentsRequest{ProjectId: p.Id, Limit: 2})
+	if err != nil || len(first.Deployments) != 2 || first.Deployments[0].Image != "reg/web:3" || first.NextCursor == "" {
+		t.Fatalf("first page: %+v, %v", first, err)
+	}
+	older, err := s.ListDeployments(as(alice), &pb.ListDeploymentsRequest{ProjectId: p.Id, Limit: 2, Before: first.NextCursor})
+	if err != nil || len(older.Deployments) != 1 || older.Deployments[0].Image != "reg/web:1" || older.NextCursor != "" {
+		t.Errorf("older page: %+v, %v", older, err)
+	}
+	_, err = s.ListDeployments(as(alice), &pb.ListDeploymentsRequest{ProjectId: p.Id, Before: "nope"})
+	wantCode(t, "a cursor that is not one", err, codes.InvalidArgument)
+}

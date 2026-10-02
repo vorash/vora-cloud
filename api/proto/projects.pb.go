@@ -608,6 +608,8 @@ func (*DeleteProjectResponse) Descriptor() ([]byte, []int) {
 type ListDeploymentsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ProjectId     string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`  // 0 means the default (50); more than 100 is cut to 100
+	Before        string                 `protobuf:"bytes,3,opt,name=before,proto3" json:"before,omitempty"` // next_cursor of an earlier page; empty starts at the newest
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -649,9 +651,24 @@ func (x *ListDeploymentsRequest) GetProjectId() string {
 	return ""
 }
 
+func (x *ListDeploymentsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListDeploymentsRequest) GetBefore() string {
+	if x != nil {
+		return x.Before
+	}
+	return ""
+}
+
 type ListDeploymentsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Deployments   []*Deployment          `protobuf:"bytes,1,rep,name=deployments,proto3" json:"deployments,omitempty"` // newest first
+	Deployments   []*Deployment          `protobuf:"bytes,1,rep,name=deployments,proto3" json:"deployments,omitempty"`                 // newest first
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"` // pass as before for older ones; empty on the last page
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -691,6 +708,13 @@ func (x *ListDeploymentsResponse) GetDeployments() []*Deployment {
 		return x.Deployments
 	}
 	return nil
+}
+
+func (x *ListDeploymentsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 type GetDeploymentRequest struct {
@@ -966,12 +990,16 @@ const file_api_proto_projects_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"&\n" +
 	"\x14DeleteProjectRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x17\n" +
-	"\x15DeleteProjectResponse\"7\n" +
+	"\x15DeleteProjectResponse\"e\n" +
 	"\x16ListDeploymentsRequest\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x01 \x01(\tR\tprojectId\"U\n" +
+	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06before\x18\x03 \x01(\tR\x06before\"v\n" +
 	"\x17ListDeploymentsResponse\x12:\n" +
-	"\vdeployments\x18\x01 \x03(\v2\x18.controlplane.DeploymentR\vdeployments\"&\n" +
+	"\vdeployments\x18\x01 \x03(\v2\x18.controlplane.DeploymentR\vdeployments\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"&\n" +
 	"\x14GetDeploymentRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"z\n" +
 	"\x12DeployImageRequest\x12\x1d\n" +

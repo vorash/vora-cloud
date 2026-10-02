@@ -292,8 +292,8 @@ func TestAnotherUsersProjectIsNotFound(t *testing.T) {
 	if r := v.send("GET", "/projects/not-a-uuid", nil, bob, nil); r.code != http.StatusNotFound {
 		t.Errorf("malformed id: %d", r.code)
 	}
-	if deps, _ := v.projects.ListDeployments(context.Background(), aliceID, uuid.MustParse(id)); len(deps) != 0 {
-		t.Errorf("bob's request deployed to alice's project: %v", deps)
+	if got, _ := v.projects.ListDeployments(context.Background(), aliceID, uuid.MustParse(id), project.Page{}); len(got.Deployments) != 0 {
+		t.Errorf("bob's request deployed to alice's project: %v", got.Deployments)
 	}
 	if r := v.send("GET", "/", nil, bob, nil); strings.Contains(r.body, "Web") {
 		t.Error("bob's list shows alice's project")

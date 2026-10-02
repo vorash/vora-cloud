@@ -26,7 +26,9 @@
           {{if .Error}}<div class="tl-err"><details class="err"><summary>{{.Error}}</summary></details></div>{{end}}
         </li>
 {{end}}      </ul></div>
-      <p class="section-note">Status updates when you reload the page.</p>
+{{if .Data.Next}}      <p class="section-note"><a href="/projects/{{$id}}?before={{.Data.Next}}">Show older deployments</a></p>
+{{end}}      <p class="section-note">Status updates when you reload the page.</p>
+{{else if $latest}}      <p class="section-note">No older deployments.</p>
 {{else}}      <div class="empty">
         <h3 class="empty-title">No deployments yet</h3>
         <p class="empty-text">Deploy a container image to put this project online. Its deployments will be listed here.</p>

@@ -164,11 +164,40 @@ func (s *Service) DeleteProject(ctx context.Context, owner, id uuid.UUID) error 
 	return s.store.DeleteProject(ctx, id)
 }
 
-func (s *Service) ListDeployments(ctx context.Context, owner, project uuid.UUID) ([]Deployment, error) {
+// ListDeployments returns one page of the project's deployments, newest first.
+func (s *Service) ListDeployments(ctx context.Context, owner, project uuid.UUID, page Page) (DeploymentPage, error) {
 	if _, err := s.owned(ctx, owner, project); err != nil {
-		return nil, err
+		return DeploymentPage{}, err
 	}
-	return s.store.ListDeployments(ctx, project)
+	limit := page.Limit
+	switch {
+	case limit < 0:
+		return DeploymentPage{}, invalid("limit must not be negative")
+	case limit == 0:
+		limit = DefaultPageSize
+	case limit > MaxPageSize:
+		limit = MaxPageSize
+	}
+	var after *Cursor
+	if page.Before != "" {
+		c, err := ParseCursor(page.Before)
+		if err != nil {
+			return DeploymentPage{}, err
+		}
+		after = &c
+	}
+	// One more than asked for tells whether an older page exists.
+	deps, err := s.store.ListDeployments(ctx, project, after, limit+1)
+	if err != nil {
+		return DeploymentPage{}, err
+	}
+	out := DeploymentPage{Deployments: deps}
+	if len(deps) > limit {
+		out.Deployments = deps[:limit]
+		last := deps[limit-1]
+		out.Next = Cursor{CreatedAt: last.CreatedAt, ID: last.ID}.String()
+	}
+	return out, nil
 }
 
 // GetDeployment loads a deployment through its project's owner.
@@ -211,7 +240,7 @@ func (s *Service) Redeploy(ctx context.Context, owner, project uuid.UUID) (*Depl
 	if err != nil {
 		return nil, err
 	}
-	deps, err := s.store.ListDeployments(ctx, project)
+	deps, err := s.store.ListDeployments(ctx, project, nil, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -290,13 +319,15 @@ func (s *Service) deploy(ctx context.Context, p *Project, in DeployInput) (*Depl
 // only the newest spec, so an older one would otherwise be reported ready for
 // a rollout that never carried its image.
 func (s *Service) supersede(ctx context.Context, project, keep uuid.UUID) {
-	deps, err := s.store.ListDeployments(ctx, project)
+	// ListActive, not a page of the project's history: an unfinished
+	// deployment must be found however many newer ones there are.
+	deps, err := s.store.ListActive(ctx)
 	if err != nil {
-		log.Printf("project %s: list deployments to supersede: %v", project, err)
+		log.Printf("project %s: list active deployments to supersede: %v", project, err)
 		return
 	}
 	for i := range deps {
-		if deps[i].ID != keep && !deps[i].Status.Final() {
+		if deps[i].ProjectID == project && deps[i].ID != keep {
 			if err := s.move(ctx, &deps[i], StatusFailed, "superseded by a newer deployment"); err != nil && !errors.Is(err, ErrConflict) {
 				log.Printf("deployment %s: supersede: %v", deps[i].ID, err)
 			}

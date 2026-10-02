@@ -921,7 +921,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Newest first",
+                "description": "Newest first. Returns up to ` + "`" + `limit` + "`" + ` deployments (default 50, at most 100). When older ones remain, the X-Next-Cursor response header holds the ` + "`" + `before` + "`" + ` value that fetches them.",
                 "produces": [
                     "application/json"
                 ],
@@ -936,6 +936,18 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Most deployments to return",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "X-Next-Cursor of the previous page",
+                        "name": "before",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -945,6 +957,21 @@ const docTemplate = `{
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/rest.DeploymentResponse"
+                            }
+                        },
+                        "headers": {
+                            "X-Next-Cursor": {
+                                "type": "string",
+                                "description": "Pass as ` + "`" + `before` + "`" + ` for older deployments; absent on the last page"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
                             }
                         }
                     },

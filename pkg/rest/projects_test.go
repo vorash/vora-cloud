@@ -262,3 +262,46 @@ func TestOnlyAnAdminKeyCreatesUsers(t *testing.T) {
 		t.Errorf("short password: %d, want 400", code)
 	}
 }
+
+// The body stays a bare array, so clients written before paging keep working;
+// the cursor for older deployments travels in a header.
+func TestDeploymentsListPagesThroughTheNextCursorHeader(t *testing.T) {
+	e := projectsAPI(t)
+	id := createProject(t, e, alice, "web")
+	for _, img := range []string{"reg/web:1", "reg/web:2", "reg/web:3"} {
+		if code, body := call(t, e, alice, "POST", "/api/v1/projects/"+id+"/deployments", `{"image":"`+img+`"}`); code != http.StatusCreated {
+			t.Fatalf("deploy: %d %v", code, body)
+		}
+	}
+	list := func(who, query string) (int, []map[string]any, string) {
+		req := httptest.NewRequest("GET", "/api/v1/projects/"+id+"/deployments"+query, nil)
+		req.Header.Set("X-Test-User", who)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		var out []map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out, rec.Header().Get("X-Next-Cursor")
+	}
+
+	code, all, next := list(alice, "")
+	if code != 200 || len(all) != 3 || next != "" {
+		t.Fatalf("no paging asked: %d, %d deployments, next %q; want everything and no cursor", code, len(all), next)
+	}
+	_, first, next := list(alice, "?limit=2")
+	if len(first) != 2 || first[0]["image"] != "reg/web:3" || next == "" {
+		t.Fatalf("first page: %v, next %q", first, next)
+	}
+	_, older, next2 := list(alice, "?limit=2&before="+next)
+	if len(older) != 1 || older[0]["image"] != "reg/web:1" || next2 != "" {
+		t.Errorf("older page: %v, next %q", older, next2)
+	}
+	if code, _, _ := list(alice, "?limit=lots"); code != http.StatusBadRequest {
+		t.Errorf("a limit that is not a number: %d, want 400", code)
+	}
+	if code, _, _ := list(alice, "?before=nope"); code != http.StatusBadRequest {
+		t.Errorf("a cursor that is not one: %d, want 400", code)
+	}
+	if code, _, _ := list(bob, "?before="+next); code != http.StatusNotFound {
+		t.Errorf("another user with alice's cursor: %d, want 404", code)
+	}
+}
