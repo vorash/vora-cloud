@@ -30,6 +30,7 @@
   </header>
   <main id="main" class="main">
 {{if .Error}}<div class="alert alert-error" role="alert"><p>{{.Error}}</p></div>{{end}}
+{{if .Notice}}<div class="alert alert-info" role="status"><p>{{.Notice}}</p></div>{{end}}
 {{template "content" .}}
   </main>
 </div>
