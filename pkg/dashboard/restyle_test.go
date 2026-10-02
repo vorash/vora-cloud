@@ -103,11 +103,14 @@ func TestEmbeddedSVGsHaveNoScript(t *testing.T) {
 	}
 }
 
-// ADR 004: the policy forbids scripts and third parties. The fonts and the
-// logo come from this origin, which is the only thing allowed beyond it.
-func TestPolicyAllowsOnlyOwnFontsAndImages(t *testing.T) {
+const wantPolicy = "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'"
+
+// ADR 004: the policy allows this origin's own fonts, images, script and
+// requests (for the event stream), and nothing else: no inline script or style,
+// no third party.
+func TestPolicyAllowsOnlyOwnResources(t *testing.T) {
 	v := newEnv(t)
-	want := "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'"
+	want := wantPolicy
 	for _, path := range []string{"/login", "/assets/app.css"} {
 		if got := v.send("GET", path, nil, nil, nil).header.Get("Content-Security-Policy"); got != want {
 			t.Errorf("%s: %q, want %q", path, got, want)
@@ -115,7 +118,11 @@ func TestPolicyAllowsOnlyOwnFontsAndImages(t *testing.T) {
 	}
 }
 
-var inlineRe = regexp.MustCompile(`(?i)<script|<style|\sstyle=|\sonclick=|\sonload=|javascript:`)
+var inlineRe = regexp.MustCompile(`(?i)<style|\sstyle=|\sonclick=|\sonload=|javascript:`)
+
+// Every script tag must load the dashboard's own file and carry no code.
+var scriptTagRe = regexp.MustCompile(`(?i)<script[^>]*>(?:[^<]*</script>)?`)
+var ownScriptRe = regexp.MustCompile(`^<script src="/assets/app\.js\?v=[0-9a-f]+" defer></script>$`)
 
 // The policy would block inline styles and scripts, so the markup must have none.
 func TestPagesHaveNoInlineStylesOrScripts(t *testing.T) {
@@ -126,6 +133,11 @@ func TestPagesHaveNoInlineStylesOrScripts(t *testing.T) {
 		r := v.send("GET", path, nil, alice, map[string]string{"Accept": "text/html"})
 		if m := inlineRe.FindString(r.body); m != "" {
 			t.Errorf("%s has %q", path, m)
+		}
+		for _, tag := range scriptTagRe.FindAllString(r.body, -1) {
+			if !ownScriptRe.MatchString(tag) {
+				t.Errorf("%s has a script tag that is not the dashboard's own file: %q", path, tag)
+			}
 		}
 	}
 }

@@ -1,6 +1,7 @@
 // Package dashboard serves the web UI: server-rendered pages with cookie
-// sessions (ADR 004). It has no JavaScript and reuses project.Service, so the
-// ownership rule is the same as in the REST and gRPC APIs.
+// sessions (ADR 004). Every page works without JavaScript; one first-party
+// script only improves them. It reuses project.Service, so the ownership rule
+// is the same as in the REST and gRPC APIs.
 package dashboard
 
 import (
@@ -15,6 +16,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,8 +29,8 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
-// The stylesheet, the two self-hosted fonts (with their licences) and the
-// brand SVGs. Only the types in assetTypes are served.
+// The stylesheet, the script, the two self-hosted fonts (with their licences)
+// and the brand SVGs. Only the types in assetTypes are served.
 //
 //go:embed assets
 var assetFS embed.FS
@@ -72,9 +74,20 @@ type Dashboard struct {
 	cfg   Config
 	pages map[string]*template.Template
 	now   func() time.Time
-	// cssVersion is part of the stylesheet's URL, so a new build is fetched at
-	// once and an unchanged one is cached for a year.
-	cssVersion string
+	// versions maps the stylesheet and the script to a hash of their content. It
+	// is part of their URLs, so a new build is fetched at once and an unchanged
+	// one is cached for a year.
+	versions map[string]string
+
+	// Live status (events.go). The fields are variables so tests can shorten them.
+	pollEvery    time.Duration
+	pingEvery    time.Duration
+	maxStreamAge time.Duration
+	maxStreams   int // open event streams per session
+	streams      map[string]int
+	streamsMu    sync.Mutex
+	stop         chan struct{} // closed when the server shuts down
+	stopOnce     sync.Once
 }
 
 func New(cfg Config) (*Dashboard, error) {
@@ -85,12 +98,19 @@ func New(cfg Config) (*Dashboard, error) {
 		return nil, errors.New("dashboard: a sign-in limiter is required")
 	}
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
-	css, err := assetFS.ReadFile("assets/app.css")
-	if err != nil {
-		return nil, err
+	d := &Dashboard{
+		cfg: cfg, now: cfg.Now, versions: map[string]string{},
+		pollEvery: 3 * time.Second, pingEvery: 20 * time.Second, maxStreamAge: 10 * time.Minute, maxStreams: 4,
+		streams: map[string]int{}, stop: make(chan struct{}),
 	}
-	sum := sha256.Sum256(css)
-	d := &Dashboard{cfg: cfg, now: cfg.Now, cssVersion: hex.EncodeToString(sum[:4])}
+	for _, name := range []string{"app.css", "app.js"} {
+		data, err := assetFS.ReadFile("assets/" + name)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(data)
+		d.versions[name] = hex.EncodeToString(sum[:4])
+	}
 	if d.now == nil {
 		d.now = time.Now
 	}
@@ -146,6 +166,10 @@ func (d *Dashboard) Register(e *echo.Echo) {
 	e.GET("/projects/:id", d.showProject, private...)
 	e.POST("/projects/:id/deployments", d.deploy, private...)
 	e.POST("/projects/:id/redeploy", d.redeploy, private...)
+	e.GET("/projects/:id/events", d.events, private...)
+
+	// Streams do not end by themselves, and Shutdown does not cancel requests.
+	e.Server.RegisterOnShutdown(func() { d.stopOnce.Do(func() { close(d.stop) }) })
 
 	d.brandNotFound(e)
 }
@@ -154,6 +178,7 @@ func (d *Dashboard) Register(e *echo.Echo) {
 // responses carry nosniff. The embedded licence texts are not served.
 var assetTypes = map[string]string{
 	".css":   "text/css; charset=utf-8",
+	".js":    "text/javascript; charset=utf-8",
 	".woff2": "font/woff2",
 	".svg":   "image/svg+xml",
 }
@@ -169,9 +194,9 @@ func (d *Dashboard) asset(c echo.Context) error {
 		return echo.ErrNotFound
 	}
 	cache := "public, max-age=86400"
-	if name == "app.css" {
+	if version, ok := d.versions[name]; ok {
 		cache = "no-cache"
-		if c.QueryParam("v") == d.cssVersion {
+		if c.QueryParam("v") == version {
 			cache = "public, max-age=31536000, immutable"
 		}
 	}

@@ -24,13 +24,14 @@ const (
 	csrfKey    = "dashboard_csrf"
 )
 
-// secureHeaders applies to every dashboard response. The pages use no
-// scripts, so the policy forbids them, along with framing and third parties.
-// The fonts and the logo come from this origin, and nothing else is allowed.
+// secureHeaders applies to every dashboard response. The only script is this
+// origin's own file (no inline script), and it may only call this origin, for
+// the event stream. Framing and third parties are forbidden; the fonts and the
+// logo come from this origin, and nothing else is allowed.
 func (d *Dashboard) secureHeaders(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		h := c.Response().Header()
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'")
+		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		// Not "no-referrer": the Fetch spec then makes browsers send "Origin: null"

@@ -1,15 +1,16 @@
 {{define "content"}}
 {{$csrf := .CSRF}}{{$id := .Data.Project.ID}}{{$latest := .Data.Latest}}
+<div id="flash" role="status"></div>
 <div class="page-head">
   <div><h1 class="page-title">{{.Data.Project.Name}}</h1>
-    <p class="page-sub">{{if and $latest $latest.URL}}<a class="mono" href="{{$latest.URL}}" rel="noopener noreferrer">{{host $latest.URL}}</a>{{else}}No address until you deploy.{{end}}</p></div>
-  {{if $latest}}<div class="head-actions"><form method="post" action="/projects/{{$id}}/redeploy"><input type="hidden" name="csrf" value="{{$csrf}}"><button class="btn btn-secondary" type="submit">Redeploy latest image</button></form></div>{{end}}
+    <p class="page-sub">{{if and $latest $latest.URL}}<a class="mono" href="{{$latest.URL}}" data-copy rel="noopener noreferrer">{{host $latest.URL}}</a>{{else}}No address until you deploy.{{end}}</p></div>
+  {{if $latest}}<div class="head-actions"><form method="post" action="/projects/{{$id}}/redeploy" data-busy="Redeploying…"><input type="hidden" name="csrf" value="{{$csrf}}"><button class="btn btn-secondary" type="submit">Redeploy latest image</button></form></div>{{end}}
 </div>
-<div class="cols">
+<div class="cols"{{if .Data.Live}} data-events="/projects/{{$id}}/events"{{end}}>
   <div class="stack">
     <section aria-labelledby="deploy-h">
       <div class="section-head"><h2 id="deploy-h" class="section-title">Deploy an image</h2></div>
-      <form class="panel deploy-form" method="post" action="/projects/{{$id}}/deployments">
+      <form class="panel deploy-form" method="post" action="/projects/{{$id}}/deployments" data-busy="Deploying…">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <div class="field"><label class="label" for="image">Image</label>
           <input class="input mono" id="image" name="image" placeholder="registry.example.com/app:1.0" required></div>
@@ -19,7 +20,7 @@
     <section aria-labelledby="deps-h">
       <div class="section-head"><h2 id="deps-h" class="section-title">Deployments</h2></div>
 {{if .Data.Deployments}}      <div class="panel tl-wrap"><ul class="tl">
-{{range .Data.Deployments}}        <li class="tl-item" id="deployment-{{.ID}}">
+{{range .Data.Deployments}}        <li class="tl-item" id="deployment-{{.ID}}" data-deployment="{{.ID}}">
           {{template "status" .Status}}
           <div class="tl-main"><code>{{.Image}}</code></div>
           <div class="tl-time">{{template "time" .CreatedAt}}</div>
@@ -27,7 +28,7 @@
         </li>
 {{end}}      </ul></div>
 {{if .Data.Next}}      <p class="section-note"><a href="/projects/{{$id}}?before={{.Data.Next}}">Show older deployments</a></p>
-{{end}}      <p class="section-note">Status updates when you reload the page.</p>
+{{end}}      <p class="section-note" data-live-note>Status updates when you reload the page.</p>
 {{else if $latest}}      <p class="section-note">No older deployments.</p>
 {{else}}      <div class="empty">
         <h3 class="empty-title">No deployments yet</h3>
@@ -40,7 +41,7 @@
     <div class="panel">
       <div class="panel-head"><h2 id="overview-h" class="section-title">Overview</h2></div>
       <dl class="kv">
-        <div><dt>Status</dt><dd>{{with $latest}}{{template "status" .Status}}<span class="sub">Started {{template "time" .CreatedAt}}</span>{{else}}<span class="cell-none">No deployments yet</span>{{end}}</dd></div>
+        <div><dt>Status</dt><dd{{with $latest}} data-deployment="{{.ID}}"{{end}}>{{with $latest}}{{template "status" .Status}}<span class="sub">Started {{template "time" .CreatedAt}}</span>{{else}}<span class="cell-none">No deployments yet</span>{{end}}</dd></div>
         <div><dt>Slug</dt><dd class="mono">{{.Data.Project.Slug}}</dd></div>
         <div><dt>Region</dt><dd class="mono">{{.Data.Project.Region}}</dd></div>
         <div><dt>Latest image</dt><dd class="mono">{{with $latest}}{{.Image}}{{else}}<span class="cell-none">None</span>{{end}}</dd></div>
