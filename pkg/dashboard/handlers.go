@@ -23,6 +23,8 @@ type page struct {
 	CSRF string
 	// Error is the reason a form was refused, shown in an alert above the page.
 	Error string
+	// Notice confirms a change, in an info bar above the page.
+	Notice string
 	// Code and Message are an error page's status and text.
 	Code    int
 	Message string

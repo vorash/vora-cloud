@@ -107,6 +107,11 @@ Live status is a server-sent-events endpoint, `GET /projects/:id/events`:
   stylesheet, the script, two fonts and the logo are embedded in the binary and
   served from `/assets/`. No `data:` images, no inline styles. The fonts carry licences that limit
   where the binary may go (see the README).
+- Environment variables (`/projects/:id/env`) are write-only in the dashboard:
+  it lists names, and a value goes in through a password-type field, is sealed
+  by `project.Service` and is never rendered, refilled into a form after an
+  error, or logged. A change applies on the next deployment; the page offers
+  Redeploy.
 - The dashboard's handlers use the same `project.Service` as REST and gRPC, so
   the ownership rule is not duplicated.
 - The dashboard is its own package (`pkg/dashboard`) with its own session table

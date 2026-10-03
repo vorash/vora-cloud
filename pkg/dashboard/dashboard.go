@@ -166,6 +166,10 @@ func (d *Dashboard) Register(e *echo.Echo) {
 	e.GET("/projects/:id", d.showProject, private...)
 	e.POST("/projects/:id/deployments", d.deploy, private...)
 	e.POST("/projects/:id/redeploy", d.redeploy, private...)
+	e.POST("/projects/:id/rollback", d.rollback, private...)
+	e.GET("/projects/:id/env", d.showEnv, private...)
+	e.POST("/projects/:id/env", d.setEnv, private...)
+	e.POST("/projects/:id/env/delete", d.deleteEnv, private...)
 	e.GET("/projects/:id/events", d.events, private...)
 
 	// Streams do not end by themselves, and Shutdown does not cancel requests.

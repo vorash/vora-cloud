@@ -186,6 +186,8 @@ fieldset.field { min-width: 0; margin: 0 0 18px; padding: 0; border: 0; }
 .tl-item .status-queued .dot { background: var(--surface); box-shadow: 0 0 0 4px var(--surface), inset 0 0 0 1.5px var(--muted-2); }
 .tl-main { grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
 .tl-time { grid-column: 2; grid-row: 1 / span 2; align-self: start; padding-top: 3px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.tl-act { grid-column: 1 / -1; justify-self: start; margin: 0; }
+.tl-act .btn { margin-left: -11px; }
 .tl-err { grid-column: 1 / -1; min-width: 0; }
 details.err summary { position: relative; display: block; padding: 4px 0 0 16px; color: var(--deny-ink); font: 13px/1.5 var(--mono); list-style: none; cursor: pointer; border-radius: 4px; }
 details.err summary::-webkit-details-marker { display: none; }
@@ -194,6 +196,14 @@ details.err[open] summary::before { transform: rotate(45deg); top: .8em; }
 details.err:not([open]) summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 details.err[open] summary { overflow-wrap: anywhere; }
 .tl-wrap { padding: 4px 20px; }
+
+/* environment variables */
+.envlist { margin: 0; padding: 4px 20px; list-style: none; }
+.env-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; }
+.env-row + .env-row { border-top: 1px solid var(--line); }
+.env-row code { min-width: 0; overflow-wrap: anywhere; }
+.env-row form, .apply { margin: 0; }
+.apply { margin-top: 12px; }
 
 /* empty */
 .empty { padding: 44px 32px; background: var(--surface); border: 1px dashed var(--line-3); border-radius: 10px; }
