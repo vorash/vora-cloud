@@ -51,6 +51,7 @@ The controller reads its configuration from the environment:
 | `SECRETS_KEY` | Required. Base64 of 32 random bytes (`openssl rand -base64 32`); encrypts project environment variables. Losing it makes stored variables unreadable |
 | `APPS_DOMAIN` | Base domain of app hosts: a project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. Empty leaves apps unexposed |
 | `PUBLIC_URL` | The site's origin, e.g. `https://cloud.vora.sh`. The dashboard accepts form posts only from it; set it whenever a proxy sits in front, or sign-in is refused |
+| `GITHUB_WEBHOOK_SECRET` | The GitHub App's webhook secret. Unset, `POST /api/v1/webhooks/github` is not served. Set, it accepts only requests signed with this secret (`X-Hub-Signature-256`) and handles each `X-GitHub-Delivery` once |
 | `ALLOW_REGISTRATION` | `true` lets anyone call `POST /auth/register`. Off by default: an admin API key creates users with `POST /admin/users` |
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
 | `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |

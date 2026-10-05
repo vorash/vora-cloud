@@ -18,6 +18,7 @@ import (
 	"github.com/vorash/vora-cloud/pkg/database"
 	"github.com/vorash/vora-cloud/pkg/deploy"
 	"github.com/vorash/vora-cloud/pkg/deploy/k3s"
+	"github.com/vorash/vora-cloud/pkg/githubapp"
 	"github.com/vorash/vora-cloud/pkg/project"
 	"github.com/vorash/vora-cloud/pkg/rest"
 	"github.com/vorash/vora-cloud/pkg/secrets"
@@ -167,6 +168,32 @@ func main() {
 	if cfg.PublicURL == "" {
 		log.Println("PUBLIC_URL is not set: the dashboard derives its origin from each request, which breaks behind a proxy that rewrites the host or scheme")
 	}
+
+	// GitHub's webhook. Without a secret the endpoint is not served at all.
+	if cfg.GitHubWebhookSecret == "" {
+		log.Println("GITHUB_WEBHOOK_SECRET is not set: the GitHub webhook endpoint is disabled")
+	} else {
+		deliveries := database.NewGitHubDeliveryRepository(db)
+		hook, err := githubapp.NewWebhook(cfg.GitHubWebhookSecret, deliveries)
+		if err != nil {
+			log.Fatalf("Failed to set up the GitHub webhook: %v", err)
+		}
+		hook.Register(restServer.Echo())
+		go func() {
+			for {
+				// GitHub redelivers for at most three days; keep a week.
+				if err := deliveries.DeleteOlderThan(reconcileCtx, time.Now().Add(-7*24*time.Hour)); err != nil && reconcileCtx.Err() == nil {
+					log.Printf("Failed to delete old GitHub deliveries: %v", err)
+				}
+				select {
+				case <-reconcileCtx.Done():
+					return
+				case <-time.After(time.Hour):
+				}
+			}
+		}()
+	}
+
 	go func() {
 		for {
 			if err := sessions.DeleteExpired(reconcileCtx); err != nil && reconcileCtx.Err() == nil {
