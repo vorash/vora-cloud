@@ -22,7 +22,7 @@
   <header class="rail">
     <a class="brand" href="/" aria-label="vora cloud, projects">{{template "logo"}}</a>
     <a class="btn btn-primary btn-block" href="/projects/new">New project</a>
-    <nav aria-label="Main"><ul class="nav"><li><a href="/"{{if .Home}} aria-current="page"{{else}} class="is-here"{{end}}>Projects</a></li></ul></nav>
+    <nav aria-label="Main"><ul class="nav"><li><a href="/"{{if .Home}} aria-current="page"{{else if not .OnGitHub}} class="is-here"{{end}}>Projects</a></li>{{if .GitHubNav}}<li><a href="/github"{{if .OnGitHub}} aria-current="page"{{end}}>GitHub</a></li>{{end}}</ul></nav>
     <div class="rail-foot">
       <div class="who"><span class="who-name">{{.User}}</span></div>
       <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn btn-secondary btn-sm" type="submit">Sign out</button></form>

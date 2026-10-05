@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -157,9 +158,37 @@ func main() {
 	// from the JWT secret with a label, so the two uses never share a key.
 	csrfKey := sha256.Sum256([]byte("vora-cloud dashboard csrf\x00" + cfg.JWTSecret))
 	sessions := database.NewSessionRepository(db)
+
+	// Connecting GitHub accounts needs the whole App configuration, or none. The
+	// variable is assigned only when it is on: a nil *Connector in the interface
+	// would not be a nil interface, and the dashboard would serve the routes.
+	var githubConn dashboard.GitHub
+	githubOn, err := cfg.GitHubApp()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if githubOn {
+		githubKey, err := os.ReadFile(cfg.GitHubPrivateKeyFile)
+		if err != nil {
+			log.Fatalf("GITHUB_APP_PRIVATE_KEY_FILE: %v", err)
+		}
+		githubApp, err := githubapp.NewApp(cfg.GitHubClientID, githubKey)
+		if err != nil {
+			log.Fatalf("Failed to set up the GitHub App: %v", err)
+		}
+		callback := "" // empty: GitHub uses the first callback URL the App has
+		if cfg.PublicURL != "" {
+			callback = strings.TrimRight(cfg.PublicURL, "/") + "/github/callback"
+		}
+		githubConn = githubapp.NewConnector(githubApp, database.NewGitHubInstallationRepository(db),
+			cfg.GitHubAppSlug, cfg.GitHubClientID, cfg.GitHubClientSecret, callback)
+	} else {
+		log.Println("GITHUB_APP_* is not set: connecting GitHub accounts is disabled")
+	}
+
 	dash, err := dashboard.New(dashboard.Config{
 		Sessions: sessions, Users: userSvc, Projects: projectSvc, Regions: regions.Regions(),
-		PublicURL: cfg.PublicURL, CSRFKey: csrfKey[:], Limiter: loginLimiter,
+		PublicURL: cfg.PublicURL, CSRFKey: csrfKey[:], Limiter: loginLimiter, GitHub: githubConn,
 	})
 	if err != nil {
 		log.Fatalf("Failed to set up the dashboard: %v", err)

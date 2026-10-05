@@ -52,6 +52,7 @@ The controller reads its configuration from the environment:
 | `APPS_DOMAIN` | Base domain of app hosts: a project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. Empty leaves apps unexposed |
 | `PUBLIC_URL` | The site's origin, e.g. `https://cloud.vora.sh`. The dashboard accepts form posts only from it; set it whenever a proxy sits in front, or sign-in is refused |
 | `GITHUB_WEBHOOK_SECRET` | The GitHub App's webhook secret. Unset, `POST /api/v1/webhooks/github` is not served. Set, it accepts only requests signed with this secret (`X-Hub-Signature-256`) and handles each `X-GitHub-Delivery` once |
+| `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY_FILE` | The GitHub App's URL name, OAuth client ID and secret, and the path to its private key (`.pem`). All four or none: with some missing the server refuses to start; with none, the dashboard has no GitHub page. The callback URL registered with the App must be `PUBLIC_URL` + `/github/callback` |
 | `ALLOW_REGISTRATION` | `true` lets anyone call `POST /auth/register`. Off by default: an admin API key creates users with `POST /admin/users` |
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
 | `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |

@@ -59,3 +59,29 @@ func TestParsePoolSizeRejects(t *testing.T) {
 		}
 	}
 }
+
+// The connect flow needs all four settings. With one missing it would start
+// and then fail on the first user, so startup must stop instead.
+func TestGitHubAppIsAllOrNothing(t *testing.T) {
+	full := Config{GitHubAppSlug: "app", GitHubClientID: "id", GitHubClientSecret: "secret", GitHubPrivateKeyFile: "/key.pem"}
+	if on, err := full.GitHubApp(); !on || err != nil {
+		t.Errorf("all set: %v, %v", on, err)
+	}
+	if on, err := (&Config{}).GitHubApp(); on || err != nil {
+		t.Errorf("none set: %v, %v", on, err)
+	}
+	for name, mutate := range map[string]func(*Config){
+		"no slug":   func(c *Config) { c.GitHubAppSlug = "" },
+		"no id":     func(c *Config) { c.GitHubClientID = "" },
+		"no secret": func(c *Config) { c.GitHubClientSecret = "" },
+		"no key":    func(c *Config) { c.GitHubPrivateKeyFile = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := full
+			mutate(&c)
+			if on, err := c.GitHubApp(); on || err == nil {
+				t.Errorf("got %v, %v; want an error", on, err)
+			}
+		})
+	}
+}
