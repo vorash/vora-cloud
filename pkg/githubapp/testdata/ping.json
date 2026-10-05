@@ -1,0 +1,14 @@
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 292430182,
+  "hook": {
+    "type": "App",
+    "id": 292430182,
+    "active": true,
+    "events": ["pull_request", "push"],
+    "config": {
+      "content_type": "json",
+      "url": "https://cloud.vora.sh/api/v1/webhooks/github"
+    }
+  }
+}

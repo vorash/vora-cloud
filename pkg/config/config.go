@@ -30,6 +30,9 @@ type Config struct {
 	SecretsKey string
 	// AppsDomain is the base of app hosts: <slug>.<region>.<AppsDomain>.
 	AppsDomain string
+	// GitHubWebhookSecret is the GitHub App's webhook secret. Without it the
+	// webhook endpoint is not served.
+	GitHubWebhookSecret string
 }
 
 func LoadConfig() *Config {
@@ -47,6 +50,8 @@ func LoadConfig() *Config {
 		JWTSecret:         utils.GetEnv("JWT_SECRET", ""),
 		SecretsKey:        utils.GetEnv("SECRETS_KEY", ""),
 		AppsDomain:        utils.GetEnv("APPS_DOMAIN", ""),
+
+		GitHubWebhookSecret: utils.GetEnv("GITHUB_WEBHOOK_SECRET", ""),
 	}
 }
 

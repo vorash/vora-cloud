@@ -1,0 +1,14 @@
+{
+  "ref": "refs/heads/main",
+  "before": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+  "after": "d8f1b0a4c91e3f0e4a2b7a9c5d6e8f1a2b3c4d5e",
+  "repository": {
+    "id": 1296269,
+    "full_name": "octocat/hello-world",
+    "default_branch": "main",
+    "private": false
+  },
+  "installation": { "id": 4242 },
+  "pusher": { "name": "octocat" },
+  "sender": { "login": "octocat", "id": 1 }
+}
