@@ -63,6 +63,9 @@ type Config struct {
 	CSRFKey []byte
 	// Limiter limits sign-in attempts per email.
 	Limiter LoginLimiter
+	// GitHub connects users' GitHub accounts. Nil switches the feature off: no
+	// routes, no navigation entry.
+	GitHub GitHub
 	// Now is the clock behind "3 hours ago"; nil means time.Now.
 	Now func() time.Time
 }
@@ -171,6 +174,14 @@ func (d *Dashboard) Register(e *echo.Echo) {
 	e.POST("/projects/:id/env", d.setEnv, private...)
 	e.POST("/projects/:id/env/delete", d.deleteEnv, private...)
 	e.GET("/projects/:id/events", d.events, private...)
+
+	if d.cfg.GitHub != nil {
+		e.GET("/github", d.githubIndex, private...)
+		e.GET("/github/connect", d.githubConnect, private...)
+		e.GET("/github/finish", d.githubFinish, private...)
+		// Reached from github.com, so without the session cookie; see githubCallback.
+		e.GET("/github/callback", d.githubCallback, public...)
+	}
 
 	// Streams do not end by themselves, and Shutdown does not cancel requests.
 	e.Server.RegisterOnShutdown(func() { d.stopOnce.Do(func() { close(d.stop) }) })

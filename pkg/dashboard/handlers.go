@@ -30,7 +30,10 @@ type page struct {
 	Message string
 	// Home marks the projects list, which the navigation shows as the current page.
 	Home bool
-	Data any
+	// OnGitHub marks the GitHub page; GitHubNav (set by render) shows its link.
+	OnGitHub  bool
+	GitHubNav bool
+	Data      any
 
 	// Set by render. Shell is "app" (the navigation rail, signed in), "auth"
 	// (sign-in) or "plain" (other signed-out pages); Asset and Script version the
@@ -42,6 +45,7 @@ type page struct {
 
 func (d *Dashboard) render(c echo.Context, status int, name string, p page) error {
 	p.Asset, p.Script = d.versions["app.css"], d.versions["app.js"]
+	p.GitHubNav = d.cfg.GitHub != nil
 	if csrf, ok := c.Get(csrfKey).(string); ok {
 		p.CSRF, p.User, p.Shell = csrf, sessionOf(c).UserName, "app"
 	} else if name == "login" {

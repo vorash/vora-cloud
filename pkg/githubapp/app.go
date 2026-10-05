@@ -33,6 +33,7 @@ type App struct {
 	clientID string
 	key      *rsa.PrivateKey
 	api      *github.Client
+	opts     []github.ClientOptionsFunc // base URL overrides, for tests
 	now      func() time.Time
 
 	mu     sync.Mutex
@@ -59,7 +60,7 @@ func newApp(clientID string, privateKeyPEM []byte, now func() time.Time, opts ..
 	if err != nil {
 		return nil, fmt.Errorf("githubapp: the App's private key: %w", err)
 	}
-	a := &App{clientID: clientID, key: key, now: now, tokens: map[int64]installationToken{}}
+	a := &App{clientID: clientID, key: key, opts: opts, now: now, tokens: map[int64]installationToken{}}
 
 	// Every request carries a JWT signed at that moment: one lives ten minutes
 	// at most, and a client built once would otherwise outlive it.
@@ -120,6 +121,21 @@ func (a *App) InstallationToken(ctx context.Context, installationID int64) (stri
 	a.tokens[installationID] = installationToken{value: tok.GetToken(), expires: tok.ExpiresAt.Time}
 	a.mu.Unlock()
 	return tok.GetToken(), nil
+}
+
+// clientFor returns a client that sends a token as a bearer. It is cheap, so
+// callers build one per use and drop it with the token.
+func (a *App) clientFor(token string) (*github.Client, error) {
+	return github.NewClient(append([]github.ClientOptionsFunc{github.WithAuthToken(token), github.WithTimeout(apiTimeout)}, a.opts...)...)
+}
+
+// InstallationClient returns a client that acts as one installation.
+func (a *App) InstallationClient(ctx context.Context, installationID int64) (*github.Client, error) {
+	token, err := a.InstallationToken(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	return a.clientFor(token)
 }
 
 func (a *App) cached(installationID int64) (string, bool) {

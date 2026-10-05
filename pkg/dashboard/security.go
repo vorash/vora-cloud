@@ -20,8 +20,9 @@ import (
 const cookieName = "__Host-vora_session"
 
 const (
-	sessionKey = "dashboard_session"
-	csrfKey    = "dashboard_csrf"
+	sessionKey   = "dashboard_session"
+	csrfKey      = "dashboard_csrf"
+	tokenHashKey = "dashboard_token_hash"
 )
 
 // secureHeaders applies to every dashboard response. The only script is this
@@ -138,6 +139,7 @@ func (d *Dashboard) requireSession(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		c.Set(sessionKey, sess)
 		c.Set(csrfKey, csrf)
+		c.Set(tokenHashKey, hash)
 		return next(c)
 	}
 }

@@ -33,6 +33,12 @@ type Config struct {
 	// GitHubWebhookSecret is the GitHub App's webhook secret. Without it the
 	// webhook endpoint is not served.
 	GitHubWebhookSecret string
+	// The GitHub App's identity, all four or none: its URL name, OAuth client
+	// ID and secret, and the file holding its private key. See GitHubApp.
+	GitHubAppSlug        string
+	GitHubClientID       string
+	GitHubClientSecret   string
+	GitHubPrivateKeyFile string
 }
 
 func LoadConfig() *Config {
@@ -51,8 +57,36 @@ func LoadConfig() *Config {
 		SecretsKey:        utils.GetEnv("SECRETS_KEY", ""),
 		AppsDomain:        utils.GetEnv("APPS_DOMAIN", ""),
 
-		GitHubWebhookSecret: utils.GetEnv("GITHUB_WEBHOOK_SECRET", ""),
+		GitHubWebhookSecret:  utils.GetEnv("GITHUB_WEBHOOK_SECRET", ""),
+		GitHubAppSlug:        utils.GetEnv("GITHUB_APP_SLUG", ""),
+		GitHubClientID:       utils.GetEnv("GITHUB_APP_CLIENT_ID", ""),
+		GitHubClientSecret:   utils.GetEnv("GITHUB_APP_CLIENT_SECRET", ""),
+		GitHubPrivateKeyFile: utils.GetEnv("GITHUB_APP_PRIVATE_KEY_FILE", ""),
 	}
+}
+
+// GitHubApp reports whether the GitHub App is configured. The four settings
+// go together: with some missing the connect flow would half work, so a partial
+// set is an error and startup must stop.
+func (c *Config) GitHubApp() (bool, error) {
+	var missing []string
+	for _, v := range []struct{ name, value string }{
+		{"GITHUB_APP_SLUG", c.GitHubAppSlug},
+		{"GITHUB_APP_CLIENT_ID", c.GitHubClientID},
+		{"GITHUB_APP_CLIENT_SECRET", c.GitHubClientSecret},
+		{"GITHUB_APP_PRIVATE_KEY_FILE", c.GitHubPrivateKeyFile},
+	} {
+		if v.value == "" {
+			missing = append(missing, v.name)
+		}
+	}
+	switch len(missing) {
+	case 0:
+		return true, nil
+	case 4:
+		return false, nil
+	}
+	return false, fmt.Errorf("the GitHub App is half configured, set %s too", strings.Join(missing, ", "))
 }
 
 // ParseRegions reads "eu=/etc/vora-cloud/eu.kubeconfig,us=/etc/vora-cloud/us.kubeconfig"

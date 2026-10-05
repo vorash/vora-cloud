@@ -1,0 +1,21 @@
+{{define "content"}}
+<div class="page-head"><div><h1 class="page-title">GitHub</h1><p class="page-sub">Connect your GitHub account to deploy from its repositories.</p></div></div>
+<div class="stack">
+{{range .Data.Installations}}  <section aria-labelledby="gh-{{.Account}}">
+    <div class="section-head"><h2 id="gh-{{.Account}}" class="section-title">{{.Account}}</h2><a class="btn btn-quiet btn-sm" href="https://github.com/settings/installations/{{.ID}}" rel="noopener noreferrer">Manage on GitHub</a></div>
+{{if .Failed}}    <div class="empty"><h3 class="empty-title">Repositories could not be loaded</h3><p class="empty-text">GitHub did not answer, or the app was uninstalled. Reload the page, or reconnect below.</p></div>
+{{else if .Repos.List}}    <ul class="panel envlist">
+{{range .Repos.List}}      <li class="env-row"><code>{{.FullName}}</code><span class="help">{{if .Private}}private{{else}}public{{end}} · {{.DefaultBranch}}</span></li>
+{{end}}    </ul>
+{{if gt .Repos.Total (len .Repos.List)}}    <p class="section-note">Showing {{len .Repos.List}} of {{.Repos.Total}} repositories.</p>
+{{end}}{{else}}    <div class="empty"><h3 class="empty-title">No repositories</h3><p class="empty-text">The app has no access to a repository yet. Add one in the app's settings on GitHub.</p></div>
+{{end}}  </section>
+{{else}}  <div class="empty">
+    <h2 class="empty-title">Connect GitHub</h2>
+    <p class="empty-text">Sign in with GitHub and install the Vora Cloud app on your personal account. Vora reads the repositories you choose to build them, and reports each deployment's status on their commits.</p>
+    <a class="btn btn-primary" href="/github/connect">Connect GitHub</a>
+{{if .Data.InstallURL}}    <p class="empty-hint"><a href="{{.Data.InstallURL}}" rel="noopener noreferrer">Install the app on GitHub</a>, then connect again.</p>
+{{end}}  </div>
+{{end}}{{if .Data.Installations}}  <p class="section-note">Installed the app again, or something looks wrong? <a href="/github/connect">Reconnect GitHub</a>.</p>
+{{end}}</div>
+{{end}}
