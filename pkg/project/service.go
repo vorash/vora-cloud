@@ -316,6 +316,9 @@ func (s *Service) Rollback(ctx context.Context, owner, project, target uuid.UUID
 	if old.Status != StatusReady {
 		return nil, invalid("deployment %s never became ready, so it is not a rollback target", old.ID)
 	}
+	if old.ImagePrunedAt != nil {
+		return nil, invalid("the image of deployment %s was removed to save space, so it is not a rollback target", old.ID)
+	}
 	return s.deploy(ctx, p, DeployInput{Image: old.Image, CommitSHA: old.CommitSHA, Ref: old.Ref})
 }
 

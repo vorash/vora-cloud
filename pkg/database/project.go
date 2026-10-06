@@ -111,12 +111,12 @@ func (r *ProjectRepository) DeleteProject(ctx context.Context, id uuid.UUID) err
 }
 
 const deploymentColumns = `id, project_id, commit_sha, ref, status, image, region, url, error,
-	created_at, started_at, finished_at, updated_at`
+	created_at, started_at, finished_at, updated_at, image_pruned_at`
 
 func scanDeployment(row pgx.Row) (*project.Deployment, error) {
 	var d project.Deployment
 	err := row.Scan(&d.ID, &d.ProjectID, &d.CommitSHA, &d.Ref, &d.Status, &d.Image, &d.Region, &d.URL, &d.Error,
-		&d.CreatedAt, &d.StartedAt, &d.FinishedAt, &d.UpdatedAt)
+		&d.CreatedAt, &d.StartedAt, &d.FinishedAt, &d.UpdatedAt, &d.ImagePrunedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -216,6 +216,34 @@ func (r *ProjectRepository) SetImage(ctx context.Context, id uuid.UUID, image, u
 		return project.ErrNotFound
 	}
 	return nil
+}
+
+// ListImages returns the deployments whose image the registry may still hold.
+func (r *ProjectRepository) ListImages(ctx context.Context) ([]project.ImageUse, error) {
+	rows, err := r.db.Query(ctx, `SELECT d.id, d.project_id, p.slug, d.image, d.status, d.created_at
+		FROM deployments d JOIN projects p ON p.id = d.project_id
+		WHERE d.image <> '' AND d.image_pruned_at IS NULL
+		ORDER BY d.project_id, d.created_at DESC, d.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []project.ImageUse
+	for rows.Next() {
+		var u project.ImageUse
+		if err := rows.Scan(&u.DeploymentID, &u.ProjectID, &u.Slug, &u.Image, &u.Status, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// MarkImagePruned records that an image is gone, on each deployment that ran it.
+func (r *ProjectRepository) MarkImagePruned(ctx context.Context, projectID uuid.UUID, image string) error {
+	_, err := r.db.Exec(ctx, `UPDATE deployments SET image_pruned_at = now()
+		WHERE project_id = $1 AND image = $2 AND image_pruned_at IS NULL`, projectID, image)
+	return err
 }
 
 // BuildLog is a column of its own, outside deploymentColumns, so that listing

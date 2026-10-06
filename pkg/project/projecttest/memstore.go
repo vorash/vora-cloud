@@ -200,6 +200,35 @@ func (m *MemStore) SetImage(_ context.Context, id uuid.UUID, image, url string) 
 	return nil
 }
 
+func (m *MemStore) ListImages(context.Context) ([]project.ImageUse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []project.ImageUse
+	for _, d := range m.deps {
+		if d.Image == "" || d.ImagePrunedAt != nil {
+			continue
+		}
+		p := m.projects[d.ProjectID]
+		if p == nil {
+			continue
+		}
+		out = append(out, project.ImageUse{DeploymentID: d.ID, ProjectID: d.ProjectID, Slug: p.Slug, Image: d.Image, Status: d.Status, CreatedAt: d.CreatedAt})
+	}
+	return out, nil
+}
+
+func (m *MemStore) MarkImagePruned(_ context.Context, projectID uuid.UUID, image string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.tick()
+	for _, d := range m.deps {
+		if d.ProjectID == projectID && d.Image == image && d.ImagePrunedAt == nil {
+			d.ImagePrunedAt = &now
+		}
+	}
+	return nil
+}
+
 func (m *MemStore) BuildLog(_ context.Context, id uuid.UUID) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

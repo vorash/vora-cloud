@@ -213,3 +213,47 @@ func TestProjectPageOffersRollbackOnlyToEarlierReadyDeployments(t *testing.T) {
 		t.Errorf("rollback to a garbled id: %d, want 404", r.code)
 	}
 }
+
+// A deployment whose image was removed to save space cannot be rolled back to: the
+// page says so instead of offering it, and a request for it is refused.
+func TestProjectPageDoesNotOfferRollbackToARemovedImage(t *testing.T) {
+	v, alice, id := envEnv(t)
+	ctx := context.Background()
+	var deps []*project.Deployment
+	for _, image := range []string{"reg/web:1", "reg/web:2", "reg/web:3"} {
+		d, err := v.projects.Deploy(ctx, aliceID, id, project.DeployInput{Image: image})
+		if err != nil {
+			t.Fatal(err)
+		}
+		v.settle(t, d, project.StatusReady, "")
+		deps = append(deps, d)
+	}
+	path := "/projects/" + id.String()
+	if body := v.send("GET", path, nil, alice, nil).body; strings.Count(body, `action="`+path+`/rollback"`) != 2 {
+		t.Fatal("before pruning, both earlier deployments should offer a rollback")
+	}
+
+	// Keep only the newest; reg/web:1 is let go.
+	if _, err := v.projects.PruneImages(ctx, 1, func(_ context.Context, _, image string) error {
+		if image == "reg/web:2" {
+			return project.ErrImageNotManaged // typed by the user, not ours: stays
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body := v.send("GET", path, nil, alice, nil).body
+	if strings.Contains(body, `name="deployment" value="`+deps[0].ID.String()+`"`) || strings.Count(body, "Image removed") != 1 {
+		t.Errorf("the removed image still offers a rollback, or is not marked (%d marks)", strings.Count(body, "Image removed"))
+	}
+	if !strings.Contains(body, `name="deployment" value="`+deps[1].ID.String()+`"`) {
+		t.Error("an image nobody removed lost its rollback")
+	}
+	before, _ := v.projects.ListDeployments(ctx, aliceID, id, project.Page{})
+	if r := v.post(t, alice, path+"/rollback", url.Values{"deployment": {deps[0].ID.String()}}); r.code != http.StatusUnprocessableEntity {
+		t.Errorf("a rollback to a removed image: %d, want 422", r.code)
+	}
+	if after, _ := v.projects.ListDeployments(ctx, aliceID, id, project.Page{}); len(after.Deployments) != len(before.Deployments) {
+		t.Error("a refused rollback still created a deployment")
+	}
+}

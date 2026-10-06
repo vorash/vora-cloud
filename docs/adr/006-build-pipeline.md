@@ -90,6 +90,22 @@ first.
    streamed to the dashboard over the event stream that already exists.
 8. **Cache** is exported to the registry (`--export-cache type=registry`) and
    imported by the next build, so a Job per build is not a cold build.
+9. **Retention** (decided by the owner, 2026-10-06: 5). A project keeps the
+   images of its 5 newest deployments that have one, the one it is serving (its
+   newest ready deployment, even if older), and every deployment still in
+   progress; an image any of those runs is kept whichever row names it. The rest
+   are deleted from the registry by digest, and the deployments that ran them can
+   no longer be rolled back to (the page says "Image removed"). Only
+   `<pull host>/<slug>/<slug>@sha256:...` of the deployment's own project is ever
+   deleted: an image is whatever its user typed, and could name another
+   project's. The deletion comes first and the mark after it, so a failure is
+   tried again. Each build also deletes the cache manifest its export replaced,
+   because a moved tag leaves the old manifest untagged, which garbage collection
+   keeps with all its layers. Deleting a manifest frees no disk by itself: the
+   registry's garbage collection does, and it must run with the registry stopped
+   or read-only (never with `--delete-untagged`, which would take images that a
+   rebuilt tag no longer names). That is set up with the registry, in
+   vora-cloud-ansible.
 
 ## Decided by the owner (2026-10-06)
 
