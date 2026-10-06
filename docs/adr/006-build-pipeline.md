@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-06
+- Amended: 2026-10-06 (what the orchestration settled, and what was verified live)
 
 ## Context
 
@@ -116,3 +117,57 @@ first.
   long-running.
 - Every build holds a token and runs user code in one pod. The token is limited
   in what it can read and in time; the user code is limited in what it can reach.
+
+## What the orchestration settled (2026-10-06)
+
+Implemented in vora-cloud #48.
+
+- **Deployed by digest.** When a build's Job succeeds, the service asks the
+  registry for the digest of the pushed tag and deploys
+  `localhost:5000/<project>/<project>@sha256:...`. Another build re-tagging the
+  image cannot change what runs. The open registry still lets a build delete one.
+- **How a repository is built.** A project's build configuration has a
+  `dockerfile` (a path inside the build folder, default `Dockerfile`) and a
+  `context` (a folder of the repository, default its root). A monorepo is several
+  projects on one repository, each with its own. The create form asks for both,
+  and for the port the app listens on. Paths stay inside the repository and carry
+  nothing a BuildKit option list could take apart.
+- **The cache is imported only if it exists.** Asking for one that does not makes
+  BuildKit log an error, although the build goes on, and the first build of every
+  project would show it.
+- **State is in the database and in the Jobs.** A restart follows a running build,
+  fails one whose Job is gone, and removes every Job and Secret that is not
+  running. A build that something else ended (a manual deployment supersedes every
+  unfinished one) has its Job and Secret removed on the next pass. A newer push
+  cancels the build that is running for the project.
+- **Commit statuses follow the deployment**, in order: building, pushing,
+  deploying, then success, or failure with the reason. A commit queued while
+  builds are off is still described as unable to be built.
+- **The build log** is the tail (256 KiB) of what BuildKit printed, in a column of
+  its own that deployment lists never read, with anything that looks like a GitHub
+  token removed, served as plain text to the deployment's owner.
+- **Off by default.** Builds start only when all of `BUILD_*` and the GitHub App
+  are set.
+
+Verified by hand on the staging guest, in a throwaway namespace, against a
+private repository:
+
+| What | Result |
+|---|---|
+| BuildKit fetches a private repository itself, with a token of one repository and `contents: read` as the `GIT_AUTH_TOKEN` secret from a mounted Secret | Works. The URL in the log has no credentials, and the token is in none of the log's 1,043 lines |
+| `Dockerfile.backend` at the root, selected with `filename` | Built a Python backend and pushed it in 79 s, cold |
+| `#<sha>:frontend` as a subfolder context, with a Dockerfile relative to it | Works |
+| Registry cache export and import | The first build took 53 s, the second 8 s, with 11 cached steps |
+
+Then through the orchestrator, on the staging guest, from a real push (vora-cloud
+#48 with vora-cloud-ansible #17 and #18 applied):
+
+| What | Result |
+|---|---|
+| A push to the default branch of the private repository, with a project set to `Dockerfile.backend` | Queued, built, pushed and deployed by digest in about 80 s. The node pulled `localhost:5000/<slug>/<slug>@sha256:...` from the registry mirror. The Job and Secret were gone afterwards, and no token-like string was in the 83 KB stored log |
+| A project created before build settings existed (default `Dockerfile`, which the repository does not have) | The private fetch worked, the build failed in 7 s with BuildKit's error, the deployment was marked failed with it, the log was stored, and nothing was left in the namespace |
+| Two projects on one repository, one push | One deployment each, built one at a time |
+
+The app that was deployed then crashed on start for want of a database setting.
+That is the app's configuration. The deployment stays `deploying` until the
+10-minute rollout timeout of the project service fails it.
