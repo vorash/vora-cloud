@@ -42,7 +42,7 @@ priv() { q "select has_table_privilege('$1', 'public.$2', '$3')"; }
 echo "== plain PostgreSQL (no Supabase roles)"
 start_cluster plain
 if migrate -path migrations -database "$URL" up >/dev/null 2>&1; then pass "up applies every migration"; else fail "up failed"; fi
-expect "migration version" 9 "$(q 'select version from schema_migrations')"
+expect "migration version" 10 "$(q 'select version from schema_migrations')"
 expect "row level security is on" t "$(q "select relrowsecurity from pg_class where relname = 'users'")"
 # Supabase hands every new public table to anon and authenticated, so a table
 # without row level security is readable through the Data API.

@@ -206,6 +206,40 @@ func (r *ProjectRepository) Move(ctx context.Context, id uuid.UUID, from, to pro
 	return nil
 }
 
+// SetImage records the image of a built deployment and its address.
+func (r *ProjectRepository) SetImage(ctx context.Context, id uuid.UUID, image, url string) error {
+	tag, err := r.db.Exec(ctx, `UPDATE deployments SET image = $2, url = $3 WHERE id = $1`, id, image, url)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return project.ErrNotFound
+	}
+	return nil
+}
+
+// BuildLog is a column of its own, outside deploymentColumns, so that listing
+// deployments never reads it.
+func (r *ProjectRepository) BuildLog(ctx context.Context, id uuid.UUID) (string, error) {
+	var log string
+	err := r.db.QueryRow(ctx, `SELECT build_log FROM deployments WHERE id = $1`, id).Scan(&log)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", project.ErrNotFound
+	}
+	return log, err
+}
+
+func (r *ProjectRepository) SetBuildLog(ctx context.Context, id uuid.UUID, log string) error {
+	tag, err := r.db.Exec(ctx, `UPDATE deployments SET build_log = $2 WHERE id = $1`, id, log)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return project.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ProjectRepository) SetEnv(ctx context.Context, projectID uuid.UUID, name string, sealed []byte) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO project_env_vars (project_id, name, value_encrypted) VALUES ($1, $2, $3)

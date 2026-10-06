@@ -14,6 +14,8 @@ import (
 	pb "github.com/vorash/vora-cloud/api/proto"
 	"github.com/vorash/vora-cloud/pkg/api"
 	"github.com/vorash/vora-cloud/pkg/auth"
+	"github.com/vorash/vora-cloud/pkg/build"
+	"github.com/vorash/vora-cloud/pkg/build/kube"
 	"github.com/vorash/vora-cloud/pkg/config"
 	"github.com/vorash/vora-cloud/pkg/dashboard"
 	"github.com/vorash/vora-cloud/pkg/database"
@@ -134,7 +136,58 @@ func main() {
 	projectSvc := project.NewService(database.NewProjectRepository(db), regions, secretsBox, cfg.AppsDomain)
 	reconcileCtx, stopReconciler := context.WithCancel(context.Background())
 	defer stopReconciler()
+
+	// The GitHub App, when it is configured: it lets users connect repositories,
+	// posts commit statuses and mints the token a build reads its repository with.
+	var githubApp *githubapp.App
+	var githubStatuses githubapp.StatusPoster // nil without the App: a typed nil would not be nil
+	githubOn, err := cfg.GitHubApp()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if githubOn {
+		githubKey, err := os.ReadFile(cfg.GitHubPrivateKeyFile)
+		if err != nil {
+			log.Fatalf("GITHUB_APP_PRIVATE_KEY_FILE: %v", err)
+		}
+		if githubApp, err = githubapp.NewApp(cfg.GitHubClientID, githubKey); err != nil {
+			log.Fatalf("Failed to set up the GitHub App: %v", err)
+		}
+		githubStatuses = githubApp
+	}
+	buildsOn, err := cfg.Builds()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// A push to a repository's default branch queues a deployment for each project
+	// tied to it, and every change of a deployment's status is reported on its
+	// commit. The observer is set before anything can change a status.
+	pushDeployments := githubapp.NewPushDeployments(projectSvc, githubStatuses, strings.TrimRight(cfg.PublicURL, "/"))
+	if buildsOn {
+		pushDeployments.WithBuilds()
+	}
+	projectSvc.Observe(pushDeployments.DeploymentChanged)
 	go projectSvc.Run(reconcileCtx, 5*time.Second)
+
+	// Builds: one rootless BuildKit Job at a time, in each region's cluster.
+	if buildsOn {
+		runners := map[string]build.Runner{}
+		for region, path := range kubeconfigs {
+			runner, err := kube.NewFromKubeconfig(path, kube.Config{Namespace: cfg.BuildNamespace, Image: cfg.BuildKitImage})
+			if err != nil {
+				log.Fatalf("Failed to set up builds in region %s: %v", region, err)
+			}
+			runners[region] = runner
+		}
+		orchestrator := build.NewOrchestrator(projectSvc, runners, githubApp,
+			&build.HTTPRegistry{BaseURL: cfg.BuildRegistryAPI},
+			build.Config{PushHost: cfg.BuildRegistryPush, PullHost: cfg.BuildRegistryPull})
+		go orchestrator.Run(reconcileCtx, 3*time.Second)
+		log.Printf("Builds are on (BuildKit in namespace %s)", cfg.BuildNamespace)
+	} else {
+		log.Println("BUILD_* is not set: a push queues a deployment that nothing builds")
+	}
 
 	// Create gRPC listener
 	grpcListener, err := net.Listen("tcp", ":"+cfg.GRPCPort)
@@ -163,25 +216,11 @@ func main() {
 	// variable is assigned only when it is on: a nil *Connector in the interface
 	// would not be a nil interface, and the dashboard would serve the routes.
 	var githubConn dashboard.GitHub
-	var githubStatuses githubapp.StatusPoster // commit statuses; nil without the App
-	githubOn, err := cfg.GitHubApp()
-	if err != nil {
-		log.Fatal(err)
-	}
 	if githubOn {
-		githubKey, err := os.ReadFile(cfg.GitHubPrivateKeyFile)
-		if err != nil {
-			log.Fatalf("GITHUB_APP_PRIVATE_KEY_FILE: %v", err)
-		}
-		githubApp, err := githubapp.NewApp(cfg.GitHubClientID, githubKey)
-		if err != nil {
-			log.Fatalf("Failed to set up the GitHub App: %v", err)
-		}
 		callback := "" // empty: GitHub uses the first callback URL the App has
 		if cfg.PublicURL != "" {
 			callback = strings.TrimRight(cfg.PublicURL, "/") + "/github/callback"
 		}
-		githubStatuses = githubApp
 		githubConn = githubapp.NewConnector(githubApp, database.NewGitHubInstallationRepository(db),
 			cfg.GitHubAppSlug, cfg.GitHubClientID, cfg.GitHubClientSecret, callback)
 	} else {
@@ -209,9 +248,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to set up the GitHub webhook: %v", err)
 		}
-		// A push to a repository's default branch queues a deployment for each
-		// project tied to it, and the commit gets a status when the App is configured.
-		hook.WithPushHandler(githubapp.NewPushDeployments(projectSvc, githubStatuses, strings.TrimRight(cfg.PublicURL, "/")))
+		hook.WithPushHandler(pushDeployments)
 		hook.Register(restServer.Echo())
 		go func() {
 			for {

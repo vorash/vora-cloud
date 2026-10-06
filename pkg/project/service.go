@@ -36,6 +36,8 @@ type Service struct {
 	// appsDomain is the base of app hosts, "<slug>.<region>.<appsDomain>".
 	// Empty means apps are not exposed.
 	appsDomain string
+	// observer hears of every change of a deployment's status; nil hears nothing.
+	observer Observer
 }
 
 func NewService(store Store, regions *deploy.Registry, box *secrets.Box, appsDomain string) *Service {
@@ -76,6 +78,9 @@ func (s *Service) CreateProject(ctx context.Context, owner uuid.UUID, in CreateI
 		return nil, invalid("slug %q must be a lowercase DNS label of at most %d characters", in.Slug, maxSlugLen)
 	}
 	if _, err := s.regions.Deployer(in.Region); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if _, err := ParseBuildSettings(in.BuildConfig); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	if (in.GitHubInstallationID == 0) != (in.GitHubRepoID == 0) || in.GitHubInstallationID < 0 || in.GitHubRepoID < 0 {
@@ -397,7 +402,13 @@ func (s *Service) deploy(ctx context.Context, p *Project, in DeployInput) (*Depl
 	if err := s.store.CreateDeployment(ctx, d); err != nil {
 		return nil, err
 	}
+	return s.rollout(ctx, deployer, p, d, spec)
+}
 
+// rollout applies a deployment's spec and moves it on to "deploying", or to
+// "failed" if the cluster refuses it. It serves a deployment made from an image
+// (queued) and one that was built (pushing).
+func (s *Service) rollout(ctx context.Context, deployer deploy.Deployer, p *Project, d *Deployment, spec deploy.Spec) (*Deployment, error) {
 	// Apply first and move to "deploying" after. The reconciler reads the
 	// cluster's rollout, and until the new spec is applied that is the old
 	// rollout's status: a "deploying" row could be marked ready for it.
@@ -444,6 +455,7 @@ func (s *Service) move(ctx context.Context, d *Deployment, to Status, errText st
 		return err
 	}
 	d.Status, d.Error = to, errText
+	s.notify(ctx, d)
 	return nil
 }
 

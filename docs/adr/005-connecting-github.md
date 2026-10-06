@@ -71,7 +71,8 @@ branch as the payload names it now (not the one stored when the project was
 created), the branch is not being deleted, and the commit id and repository
 name are well formed (they end up in a URL path). It finds projects by the
 installation id and repository id, never by the free-text `repo`. A deployment
-is queued with no image; nothing builds one yet, so it stays `queued`, and a
+is queued with no image (the build pipeline of ADR 006 builds it, or it stays
+`queued` when builds are off), and a
 newer push fails an older queued one as superseded, so a redelivery or two
 quick pushes leave one. The delivery is recorded before it is handled and
 forgotten if handling fails, so GitHub's redelivery is handled and a copy after
@@ -97,5 +98,7 @@ exist either way, and a redelivery would only queue them again.
 - One repository can back several projects (for example the apps of a
   monorepo); a push will then reach each of them.
 - A project that already exists cannot be linked to a repository yet.
-- Until builds exist, every push to a linked repository's default branch leaves a
-  `pending` status "Queued. Builds are not available yet." on its commit.
+- With builds off (ADR 006, `BUILD_*` unset), every push to a linked repository's
+  default branch leaves a `pending` status "Queued. Builds are not available yet."
+  on its commit. With builds on, the deployment is built and the commit's status
+  follows it (building, pushing, deploying, then success or failure).

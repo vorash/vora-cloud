@@ -174,6 +174,7 @@ func (d *Dashboard) Register(e *echo.Echo) {
 	e.POST("/projects/:id/env", d.setEnv, private...)
 	e.POST("/projects/:id/env/delete", d.deleteEnv, private...)
 	e.GET("/projects/:id/events", d.events, private...)
+	e.GET("/projects/:id/deployments/:dep/log", d.buildLog, private...)
 
 	if d.cfg.GitHub != nil {
 		e.GET("/github", d.githubIndex, private...)

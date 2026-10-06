@@ -1,4 +1,5 @@
 {{define "content"}}
+{{$form := .Data}}
 <div class="page-head"><div><h1 class="page-title">New project</h1><p class="page-sub">A project is one app with its own address.{{if and .Data.GitHub (not .Data.Repo)}} Or <a href="/github">create it from a GitHub repository</a>.{{end}}</p></div></div>
 <form class="panel form" method="post" action="/projects">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -7,13 +8,21 @@
       <input type="hidden" name="installation" value="{{.InstallationID}}"><input type="hidden" name="repo" value="{{.ID}}">
 {{if .Unconfirmed}}      <p class="help">GitHub did not answer, so the repository could not be confirmed. Create the project again in a moment.</p>
 {{else}}      <p class="mono"><a href="https://github.com/{{.FullName}}" rel="noopener noreferrer">{{.FullName}}</a> · {{.DefaultBranch}}</p>
-      <p class="help">The project is linked to this repository. Pushes to it will deploy here once builds are in place.</p>
+      <p class="help">The project is linked to this repository. A push to its default branch builds the repository and deploys the result here.</p>
 {{end}}    </div>
+    <div class="field"><label class="label" for="dockerfile">Dockerfile</label>
+      <input class="input mono" id="dockerfile" name="dockerfile" value="{{$form.Dockerfile}}" maxlength="200" autocomplete="off" spellcheck="false" aria-describedby="build-help"></div>
+    <div class="field"><label class="label" for="context">Build folder</label>
+      <input class="input mono" id="context" name="context" value="{{$form.Context}}" maxlength="200" placeholder="the repository root" autocomplete="off" spellcheck="false" aria-describedby="build-help">
+      <p class="help" id="build-help">The Dockerfile is a path inside the build folder. Leave the folder empty to build the repository root.</p></div>
 {{end}}    <div class="field"><label class="label" for="name">Name</label>
       <input class="input" id="name" name="name" value="{{.Data.Name}}" required></div>
     <div class="field"><label class="label" for="slug">Slug</label>
       <input class="input mono" id="slug" name="slug" value="{{.Data.Slug}}" pattern="[a-z0-9]([\-a-z0-9]*[a-z0-9])?" maxlength="61" required aria-describedby="slug-help"{{if .Data.SlugTaken}} aria-invalid="true"{{end}}>
       <p class="help" id="slug-help">Lowercase letters, digits and dashes. It names the app's namespace and address, and is unique across all users.</p></div>
+    <div class="field"><label class="label" for="port">Port</label>
+      <input class="input mono" id="port" name="port" value="{{.Data.Port}}" inputmode="numeric" pattern="[0-9]{1,5}" maxlength="5" autocomplete="off" aria-describedby="port-help">
+      <p class="help" id="port-help">The port your app listens on inside its container.</p></div>
     <fieldset class="field"><legend class="label">Region</legend>
       <div class="choices">{{$sel := .Data.Region}}{{range $i, $r := .Data.Regions}}<label class="choice"><input type="radio" name="region" value="{{$r}}"{{if or (eq $r $sel) (and (eq $sel "") (eq $i 0))}} checked{{end}} required><span class="choice-body"><span class="mono">{{$r}}</span></span></label>{{end}}</div>
     </fieldset>
