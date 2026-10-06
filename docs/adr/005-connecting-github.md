@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-05
+- Amended: 2026-10-05 (decision 6, for creating a project from a repository)
 
 ## Context
 
@@ -49,6 +50,21 @@ the App as an account, not an org, so this is enough to start.
 `github_installations`; a second Vora user who tries to link it is refused, and
 the row is never reassigned.
 
+**6. A project is tied to its repository by ids, checked on the server.**
+The dashboard creates a project from a repository the user picked on the GitHub
+page. The request carries only two numbers, the installation and the
+repository. The server checks that the installation is the user's, then finds
+the repository in that installation's own list (paged, by id) and takes the
+name and default branch from GitHub's answer, never from the form. It does not
+ask GitHub for the repository by id: any token can read any public repository,
+so that would accept a stranger's. The two ids are stored on the project
+(`github_installation_id` and `github_repo_id`, both set or neither, enforced
+by the database) and are the only link. Nothing in the REST or gRPC API can set
+them, and a test keeps it so. Those APIs still take a free-text `repo`, which is
+only a label: it is not shown as a connected repository and must never be used
+to route a push, which would let anyone claim another person's `owner/repo`.
+Pushes are matched on the installation id and the repository id.
+
 ## Consequences
 
 - The page does a second navigation after GitHub. It is a redirect the user
@@ -61,3 +77,8 @@ the row is never reassigned.
   requested.
 - Organization installations are refused with a message, and the dashboard
   lists repositories through the installation, which is safe only because of 4.
+- The default branch is stored when the project is created. A rename on GitHub
+  leaves it stale until a later step reads it from each push.
+- One repository can back several projects (for example the apps of a
+  monorepo); a push will then reach each of them.
+- A project that already exists cannot be linked to a repository yet.

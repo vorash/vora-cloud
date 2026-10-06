@@ -1,9 +1,15 @@
 {{define "content"}}
-<div class="page-head"><div><h1 class="page-title">New project</h1><p class="page-sub">A project is one app with its own address.</p></div></div>
+<div class="page-head"><div><h1 class="page-title">New project</h1><p class="page-sub">A project is one app with its own address.{{if and .Data.GitHub (not .Data.Repo)}} Or <a href="/github">create it from a GitHub repository</a>.{{end}}</p></div></div>
 <form class="panel form" method="post" action="/projects">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <div class="panel-body">
-    <div class="field"><label class="label" for="name">Name</label>
+{{with .Data.Repo}}    <div class="field"><span class="label">Repository</span>
+      <input type="hidden" name="installation" value="{{.InstallationID}}"><input type="hidden" name="repo" value="{{.ID}}">
+{{if .Unconfirmed}}      <p class="help">GitHub did not answer, so the repository could not be confirmed. Create the project again in a moment.</p>
+{{else}}      <p class="mono"><a href="https://github.com/{{.FullName}}" rel="noopener noreferrer">{{.FullName}}</a> · {{.DefaultBranch}}</p>
+      <p class="help">The project is linked to this repository. Pushes to it will deploy here once builds are in place.</p>
+{{end}}    </div>
+{{end}}    <div class="field"><label class="label" for="name">Name</label>
       <input class="input" id="name" name="name" value="{{.Data.Name}}" required></div>
     <div class="field"><label class="label" for="slug">Slug</label>
       <input class="input mono" id="slug" name="slug" value="{{.Data.Slug}}" pattern="[a-z0-9]([\-a-z0-9]*[a-z0-9])?" maxlength="61" required aria-describedby="slug-help"{{if .Data.SlugTaken}} aria-invalid="true"{{end}}>

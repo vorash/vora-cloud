@@ -42,7 +42,7 @@ priv() { q "select has_table_privilege('$1', 'public.$2', '$3')"; }
 echo "== plain PostgreSQL (no Supabase roles)"
 start_cluster plain
 if migrate -path migrations -database "$URL" up >/dev/null 2>&1; then pass "up applies every migration"; else fail "up failed"; fi
-expect "migration version" 8 "$(q 'select version from schema_migrations')"
+expect "migration version" 9 "$(q 'select version from schema_migrations')"
 expect "row level security is on" t "$(q "select relrowsecurity from pg_class where relname = 'users'")"
 # Supabase hands every new public table to anon and authenticated, so a table
 # without row level security is readable through the Data API.
@@ -55,6 +55,9 @@ q "insert into users (id, name, email, password_hash) values ('00000000-0000-000
 if q "insert into projects (owner_id, name, slug, region) values ('00000000-0000-0000-0000-00000000000a', 'Web 2', 'web', 'eu')" >/dev/null 2>&1; then fail "a second project got an existing slug"; else pass "slugs are unique across owners"; fi
 if q "insert into projects (owner_id, name, slug, region) values ('00000000-0000-0000-0000-00000000000a', 'Bad', 'Bad_Slug', 'eu')" >/dev/null 2>&1; then fail "an invalid slug was accepted"; else pass "invalid slugs are rejected"; fi
 if q "insert into deployments (project_id, image, region, status) values ('00000000-0000-0000-0000-0000000000a1', 'i', 'eu', 'bogus')" >/dev/null 2>&1; then fail "an unknown deployment status was accepted"; else pass "unknown deployment statuses are rejected"; fi
+# A project's GitHub link is both ids or neither.
+if q "update projects set github_installation_id = 5 where id = '00000000-0000-0000-0000-0000000000a1'" >/dev/null 2>&1; then fail "half a GitHub link was accepted"; else pass "a GitHub link needs both ids"; fi
+if q "update projects set github_installation_id = 5, github_repo_id = 9 where id = '00000000-0000-0000-0000-0000000000a1'" >/dev/null 2>&1; then pass "a full GitHub link is accepted"; else fail "a full GitHub link was refused"; fi
 q "insert into deployments (project_id, image, region) values ('00000000-0000-0000-0000-0000000000a1', 'i', 'eu');
    insert into project_env_vars (project_id, name, value_encrypted) values ('00000000-0000-0000-0000-0000000000a1', 'A', '\\x00')" >/dev/null
 q "delete from projects" >/dev/null

@@ -66,6 +66,9 @@ type Repositories struct {
 // reposPerPage is the most GitHub returns at once.
 const reposPerPage = 100
 
+// maxRepoPages bounds the search of Repository: 50 pages of 100 repositories.
+const maxRepoPages = 50
+
 // Connector connects Vora users to their GitHub installations.
 type Connector struct {
 	app   *App
@@ -165,7 +168,47 @@ func (c *Connector) Repositories(ctx context.Context, userID uuid.UUID, installa
 	}
 	out := &Repositories{Total: got.GetTotalCount()}
 	for _, r := range got.Repositories {
-		out.List = append(out.List, Repository{ID: r.GetID(), FullName: r.GetFullName(), Private: r.GetPrivate(), DefaultBranch: r.GetDefaultBranch()})
+		out.List = append(out.List, repositoryOf(r))
 	}
 	return out, nil
+}
+
+func repositoryOf(r *github.Repository) Repository {
+	return Repository{ID: r.GetID(), FullName: r.GetFullName(), Private: r.GetPrivate(), DefaultBranch: r.GetDefaultBranch()}
+}
+
+// Repository returns one repository that the user's installation can read, as
+// GitHub describes it. It is ErrNotFound unless the installation is the user's
+// and the repository is in that installation's own list.
+//
+// The list is searched, not the repository fetched by id: any token can read a
+// public repository, so a fetch would also "find" a stranger's, or one the
+// installation was never given. The caller sends only ids, and everything else
+// (the name, the branch) comes from this answer.
+func (c *Connector) Repository(ctx context.Context, userID uuid.UUID, installationID, repoID int64) (*Repository, error) {
+	if _, err := c.links.Get(ctx, userID, installationID); err != nil {
+		return nil, err
+	}
+	gh, err := c.app.InstallationClient(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	opts := &github.ListOptions{PerPage: reposPerPage}
+	for range maxRepoPages {
+		got, resp, err := gh.Apps.ListRepos(ctx, opts)
+		if err != nil {
+			return nil, fmt.Errorf("githubapp: listing the installation's repositories: %w", err)
+		}
+		for _, r := range got.Repositories {
+			if r.GetID() == repoID {
+				found := repositoryOf(r)
+				return &found, nil
+			}
+		}
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return nil, ErrNotFound
 }

@@ -612,3 +612,23 @@ func TestSupersedeLeavesOtherProjectsAlone(t *testing.T) {
 		t.Errorf("another project's deployment: %s, want deploying", got.Status)
 	}
 }
+
+// The two ids tie a project to a GitHub repository, so one without the other
+// is meaningless, and the database refuses it as well.
+func TestCreateProjectGitHubLinkNeedsBothIDs(t *testing.T) {
+	e := newEnv(t)
+	for name, in := range map[string]CreateInput{
+		"installation only": {GitHubInstallationID: 5},
+		"repository only":   {GitHubRepoID: 9},
+		"negative":          {GitHubInstallationID: -5, GitHubRepoID: -9},
+	} {
+		in.Name, in.Slug, in.Region = "x", "gh-"+strings.ReplaceAll(name, " ", "-"), "eu"
+		if _, err := e.svc.CreateProject(ctx, e.alice, in); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: got %v, want ErrInvalid", name, err)
+		}
+	}
+	p, err := e.svc.CreateProject(ctx, e.alice, CreateInput{Name: "x", Slug: "linked", Region: "eu", Repo: "o/r", GitHubInstallationID: 5, GitHubRepoID: 9})
+	if err != nil || p.GitHubInstallationID != 5 || p.GitHubRepoID != 9 {
+		t.Errorf("a full link: %+v, %v", p, err)
+	}
+}

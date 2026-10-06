@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,9 @@ type GitHub interface {
 	Link(ctx context.Context, userID uuid.UUID, code string) (*githubapp.Installation, error)
 	Installations(ctx context.Context, userID uuid.UUID) ([]githubapp.Installation, error)
 	Repositories(ctx context.Context, userID uuid.UUID, installationID int64) (*githubapp.Repositories, error)
+	// Repository is ErrNotFound unless the installation is the user's and the
+	// repository is one it can read.
+	Repository(ctx context.Context, userID uuid.UUID, installationID, repoID int64) (*githubapp.Repository, error)
 }
 
 // stateLifetime is how long a connection attempt stays valid: GitHub's
@@ -103,6 +107,51 @@ func (d *Dashboard) githubFinish(c echo.Context) error {
 		return d.serverError(c, err)
 	}
 	return c.Redirect(http.StatusSeeOther, "/github")
+}
+
+// repoChoice is the GitHub repository a project is being created from. Only the
+// two ids come from the request; the rest is what GitHub said about them.
+type repoChoice struct {
+	InstallationID, ID int64
+	FullName           string
+	DefaultBranch      string
+	Private            bool
+	// Unconfirmed is set when GitHub could not be asked: the ids are kept so the
+	// form can be sent again, and nothing else is known.
+	Unconfirmed bool
+}
+
+// repoFor checks the repository a request names. installation and repo are the
+// raw parameters; anything that is not a positive number is "not found", the
+// same as a repository that is not the user's.
+func (d *Dashboard) repoFor(c echo.Context, installation, repo string) (*repoChoice, error) {
+	in, err1 := strconv.ParseInt(installation, 10, 64)
+	id, err2 := strconv.ParseInt(repo, 10, 64)
+	if err1 != nil || err2 != nil || in <= 0 || id <= 0 {
+		return nil, githubapp.ErrNotFound
+	}
+	r, err := d.cfg.GitHub.Repository(c.Request().Context(), sessionOf(c).UserID, in, id)
+	if err != nil {
+		if errors.Is(err, githubapp.ErrNotFound) {
+			return nil, err
+		}
+		log.Printf("dashboard: checking repository %d of installation %d: %v", id, in, err)
+		return &repoChoice{InstallationID: in, ID: id, Unconfirmed: true}, err
+	}
+	return &repoChoice{InstallationID: in, ID: id, FullName: r.FullName, DefaultBranch: r.DefaultBranch, Private: r.Private}, nil
+}
+
+var slugRuns = regexp.MustCompile(`[^a-z0-9]+`)
+
+// slugFor suggests a project slug from a repository's name: lowercase letters
+// and digits, runs of anything else turned into one dash, at most 61
+// characters, and no dash at either end. It may be empty.
+func slugFor(repoName string) string {
+	s := strings.Trim(slugRuns.ReplaceAllString(strings.ToLower(repoName), "-"), "-")
+	if len(s) > 61 {
+		s = strings.Trim(s[:61], "-")
+	}
+	return s
 }
 
 type githubData struct {

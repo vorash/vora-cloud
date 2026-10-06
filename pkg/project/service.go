@@ -50,12 +50,17 @@ type CreateInput struct {
 	Region        string
 	Repo          string
 	DefaultBranch string
-	BuildConfig   []byte
-	Port          int32
-	Replicas      int32
-	CPUMillis     int64
-	MemoryMiB     int64
-	HealthPath    string
+	// GitHubInstallationID and GitHubRepoID link the project to a repository.
+	// Set them only for a repository that was verified to belong to the owner's
+	// installation; no API request carries them.
+	GitHubInstallationID int64
+	GitHubRepoID         int64
+	BuildConfig          []byte
+	Port                 int32
+	Replicas             int32
+	CPUMillis            int64
+	MemoryMiB            int64
+	HealthPath           string
 }
 
 func invalid(format string, args ...any) error {
@@ -73,9 +78,13 @@ func (s *Service) CreateProject(ctx context.Context, owner uuid.UUID, in CreateI
 	if _, err := s.regions.Deployer(in.Region); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	if (in.GitHubInstallationID == 0) != (in.GitHubRepoID == 0) || in.GitHubInstallationID < 0 || in.GitHubRepoID < 0 {
+		return nil, invalid("a GitHub link needs both an installation and a repository")
+	}
 	p := &Project{
 		OwnerID: owner, Name: in.Name, Slug: in.Slug, Region: in.Region,
 		Repo: in.Repo, DefaultBranch: in.DefaultBranch, BuildConfig: in.BuildConfig,
+		GitHubInstallationID: in.GitHubInstallationID, GitHubRepoID: in.GitHubRepoID,
 		Port: in.Port, Replicas: in.Replicas, CPUMillis: in.CPUMillis, MemoryMiB: in.MemoryMiB,
 		HealthPath: in.HealthPath,
 	}

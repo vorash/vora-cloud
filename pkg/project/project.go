@@ -62,21 +62,29 @@ func (s Status) Final() bool { return s == StatusReady || s == StatusFailed }
 // Project is an app owned by one user. Its slug names the namespace and the
 // public host, so it is unique across all owners.
 type Project struct {
-	ID            uuid.UUID
-	OwnerID       uuid.UUID
-	Name          string
-	Slug          string
+	ID      uuid.UUID
+	OwnerID uuid.UUID
+	Name    string
+	Slug    string
+	// Repo is a label: the API lets a user write anything there, so it never
+	// decides which project a push belongs to. Only the two ids below do.
 	Repo          string
 	DefaultBranch string
-	Region        string
-	BuildConfig   []byte // JSON, opaque until the build pipeline exists
-	Port          int32
-	Replicas      int32
-	CPUMillis     int64
-	MemoryMiB     int64
-	HealthPath    string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// GitHubInstallationID and GitHubRepoID tie the project to a GitHub
+	// repository, both set or both zero. They are set only by the dashboard,
+	// after it checked that the repository is one of the owner's own
+	// installation's.
+	GitHubInstallationID int64
+	GitHubRepoID         int64
+	Region               string
+	BuildConfig          []byte // JSON, opaque until the build pipeline exists
+	Port                 int32
+	Replicas             int32
+	CPUMillis            int64
+	MemoryMiB            int64
+	HealthPath           string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // Deployment is one attempt to run an image for a project.
