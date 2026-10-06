@@ -250,3 +250,122 @@ func TestAQueuedDeploymentIsShownWithoutAnImage(t *testing.T) {
 		t.Errorf("no Redeploy once there is an image")
 	}
 }
+
+// The Dockerfile's path and the build folder go with the project, as its build
+// configuration, and the port is what it listens on.
+func TestCreatingFromARepositoryKeepsHowItIsBuilt(t *testing.T) {
+	v, _ := newRepoEnv(t)
+	c := v.login(t, "alice@example.com", "alice-pass")
+	form := v.send("GET", "/projects/new?installation=1&repo=10", nil, c, nil).body
+	for _, want := range []string{`name="dockerfile" value="Dockerfile"`, `name="context"`, `name="port" value="80"`} {
+		if !strings.Contains(form, want) {
+			t.Errorf("the form lacks %q", want)
+		}
+	}
+
+	r := v.postProject(t, c, url.Values{
+		"name": {"Backend"}, "slug": {"backend"}, "region": {"eu"}, "installation": {"1"}, "repo": {"10"},
+		"dockerfile": {"Dockerfile.backend"}, "context": {"app"}, "port": {"8000"},
+	})
+	if r.code != http.StatusSeeOther {
+		t.Fatalf("got %d %s", r.code, r.body)
+	}
+	got := v.projectsOf(t, aliceID)
+	if len(got) != 1 || got[0].Port != 8000 {
+		t.Fatalf("projects %+v", got)
+	}
+	settings, err := project.ParseBuildSettings(got[0].BuildConfig)
+	if err != nil || settings.Dockerfile != "Dockerfile.backend" || settings.Context != "app" {
+		t.Errorf("build settings %+v, %v", settings, err)
+	}
+}
+
+func TestABadPortOrPathIsRefusedWithTheFormKept(t *testing.T) {
+	v, _ := newRepoEnv(t)
+	c := v.login(t, "alice@example.com", "alice-pass")
+	for name, form := range map[string]url.Values{
+		"a port that is not a number": {"port": {"http"}},
+		"a port out of range":         {"port": {"70000"}},
+		"a dockerfile that leaves":    {"installation": {"1"}, "repo": {"10"}, "dockerfile": {"../../etc/passwd"}},
+		"a context that leaves":       {"installation": {"1"}, "repo": {"10"}, "context": {"../x"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			form.Set("name", "X")
+			form.Set("slug", "x-"+strings.ReplaceAll(name, " ", "-")[:4])
+			form.Set("region", "eu")
+			r := v.postProject(t, c, form)
+			if r.code != http.StatusUnprocessableEntity || !strings.Contains(r.body, `name="name" value="X"`) {
+				t.Errorf("got %d: the form was lost or the value accepted", r.code)
+			}
+		})
+	}
+	if got := v.projectsOf(t, aliceID); len(got) != 0 {
+		t.Errorf("a project was created: %+v", got)
+	}
+}
+
+// A project that is not from a repository has no build to configure: the fields
+// are not offered, and if they are sent they are ignored.
+func TestAPlainProjectHasNoBuildSettings(t *testing.T) {
+	v, _ := newRepoEnv(t)
+	c := v.login(t, "alice@example.com", "alice-pass")
+	if body := v.send("GET", "/projects/new", nil, c, nil).body; strings.Contains(body, `name="dockerfile"`) || !strings.Contains(body, `name="port"`) {
+		t.Error("the plain form offers the wrong fields")
+	}
+	r := v.postProject(t, c, url.Values{"name": {"P"}, "slug": {"plain"}, "region": {"eu"}, "port": {"3000"}, "dockerfile": {"../evil"}})
+	if r.code != http.StatusSeeOther {
+		t.Fatalf("got %d %s", r.code, r.body)
+	}
+	if got := v.projectsOf(t, aliceID); len(got) != 1 || got[0].Port != 3000 || string(got[0].BuildConfig) != "{}" {
+		t.Errorf("project %+v", got)
+	}
+}
+
+func TestTheBuildLogIsServedAsPlainTextToItsOwnerOnly(t *testing.T) {
+	v, _ := newRepoEnv(t)
+	alice := v.login(t, "alice@example.com", "alice-pass")
+	bob := v.login(t, "bob@example.com", "bob-pass")
+	p, err := v.projects.CreateProject(t.Context(), aliceID, project.CreateInput{Name: "Web", Slug: "web", Region: "eu", Repo: "octo/web", GitHubInstallationID: 1, GitHubRepoID: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := v.projects.QueueFromPush(t.Context(), project.PushInput{InstallationID: 1, RepoID: 10, Ref: "refs/heads/main", CommitSHA: strings.Repeat("a", 40)})
+	if err != nil || len(q) != 1 {
+		t.Fatal(err)
+	}
+	dep := q[0].Deployment.ID
+	if err := v.projects.RecordBuildLog(t.Context(), dep, "#1 <script>alert(1)</script>\nERROR: boom\n"); err != nil {
+		t.Fatal(err)
+	}
+	path := "/projects/" + p.ID.String() + "/deployments/" + dep.String() + "/log"
+
+	r := v.send("GET", path, nil, alice, nil)
+	if r.code != http.StatusOK || !strings.Contains(r.body, "ERROR: boom") {
+		t.Fatalf("owner: %d %s", r.code, r.body)
+	}
+	// Plain text that the browser must not interpret as a page.
+	if ct := r.header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") || r.header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("Content-Type %q, nosniff %q", ct, r.header.Get("X-Content-Type-Options"))
+	}
+	if r := v.send("GET", path, nil, bob, nil); r.code != http.StatusNotFound || strings.Contains(r.body, "boom") {
+		t.Errorf("another user: %d", r.code)
+	}
+	if r := v.send("GET", path, nil, nil, nil); r.code != http.StatusSeeOther || r.header.Get("Location") != "/login" {
+		t.Errorf("anonymous: %d %s", r.code, r.header.Get("Location"))
+	}
+	// A deployment of the user's, asked for under another project's path, is not found.
+	other, _ := v.projects.CreateProject(t.Context(), aliceID, project.CreateInput{Name: "Other", Slug: "other", Region: "eu"})
+	if r := v.send("GET", "/projects/"+other.ID.String()+"/deployments/"+dep.String()+"/log", nil, alice, nil); r.code != http.StatusNotFound {
+		t.Errorf("a deployment under another project: %d, want 404", r.code)
+	}
+	if r := v.send("GET", "/projects/"+p.ID.String()+"/deployments/not-a-uuid/log", nil, alice, nil); r.code != http.StatusNotFound {
+		t.Errorf("a malformed id: %d", r.code)
+	}
+	// The page links to it for a deployment of a commit that has been built.
+	if err := v.projects.StartBuild(t.Context(), dep); err != nil {
+		t.Fatal(err)
+	}
+	if page := v.send("GET", "/projects/"+p.ID.String(), nil, alice, nil).body; !strings.Contains(page, `href="`+path+`"`) {
+		t.Errorf("the project page has no link to the build log")
+	}
+}

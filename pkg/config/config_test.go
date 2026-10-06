@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseRegions(t *testing.T) {
 	got, err := ParseRegions(" eu=/etc/a.yaml , us=/etc/b.yaml ")
@@ -83,5 +86,45 @@ func TestGitHubAppIsAllOrNothing(t *testing.T) {
 				t.Errorf("got %v, %v; want an error", on, err)
 			}
 		})
+	}
+}
+
+// A build needs the GitHub App to read the repository, a registry to push to, and
+// a BuildKit image that cannot change under it. A partial set would start and then
+// fail on the first push, so startup must stop instead.
+func TestBuildsAreAllOrNothingAndNeedTheAppAndAPinnedImage(t *testing.T) {
+	app := Config{GitHubAppSlug: "app", GitHubClientID: "id", GitHubClientSecret: "secret", GitHubPrivateKeyFile: "/key.pem"}
+	full := app
+	full.BuildRegistryPush, full.BuildRegistryPull, full.BuildRegistryAPI = "registry:5000", "localhost:5000", "http://127.0.0.1:5000"
+	full.BuildKitImage = "moby/buildkit:v0.33.1-rootless@sha256:" + strings.Repeat("a", 64)
+
+	if on, err := full.Builds(); !on || err != nil {
+		t.Errorf("all set: %v, %v", on, err)
+	}
+	if on, err := (&Config{}).Builds(); on || err != nil {
+		t.Errorf("none set: %v, %v", on, err)
+	}
+	for name, mutate := range map[string]func(*Config){
+		"no push registry":    func(c *Config) { c.BuildRegistryPush = "" },
+		"no pull registry":    func(c *Config) { c.BuildRegistryPull = "" },
+		"no registry API":     func(c *Config) { c.BuildRegistryAPI = "" },
+		"no image":            func(c *Config) { c.BuildKitImage = "" },
+		"a tag, not a digest": func(c *Config) { c.BuildKitImage = "moby/buildkit:rootless" },
+		"no GitHub App":       func(c *Config) { c.GitHubClientSecret = "" },
+		"half a GitHub App":   func(c *Config) { c.GitHubAppSlug = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := full
+			mutate(&c)
+			if on, err := c.Builds(); on || err == nil {
+				t.Errorf("got %v, %v; want an error", on, err)
+			}
+		})
+	}
+	// Builds without the App, with none of the App's settings at all.
+	noApp := full
+	noApp.GitHubAppSlug, noApp.GitHubClientID, noApp.GitHubClientSecret, noApp.GitHubPrivateKeyFile = "", "", "", ""
+	if on, err := noApp.Builds(); on || err == nil {
+		t.Errorf("builds without the App: %v, %v", on, err)
 	}
 }

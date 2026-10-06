@@ -39,6 +39,15 @@ type Config struct {
 	GitHubClientID       string
 	GitHubClientSecret   string
 	GitHubPrivateKeyFile string
+	// Builds turn a push into an image (ADR 006), all four or none: the registry
+	// as a build's pod reaches it, as the node pulls from it, its HTTP API as the
+	// service reaches it, and the pinned BuildKit image. See Builds.
+	BuildRegistryPush string
+	BuildRegistryPull string
+	BuildRegistryAPI  string
+	BuildKitImage     string
+	// BuildNamespace is where builds run (the builder role's namespace).
+	BuildNamespace string
 }
 
 func LoadConfig() *Config {
@@ -62,6 +71,11 @@ func LoadConfig() *Config {
 		GitHubClientID:       utils.GetEnv("GITHUB_APP_CLIENT_ID", ""),
 		GitHubClientSecret:   utils.GetEnv("GITHUB_APP_CLIENT_SECRET", ""),
 		GitHubPrivateKeyFile: utils.GetEnv("GITHUB_APP_PRIVATE_KEY_FILE", ""),
+		BuildRegistryPush:    utils.GetEnv("BUILD_REGISTRY_PUSH", ""),
+		BuildRegistryPull:    utils.GetEnv("BUILD_REGISTRY_PULL", ""),
+		BuildRegistryAPI:     utils.GetEnv("BUILD_REGISTRY_API", ""),
+		BuildKitImage:        utils.GetEnv("BUILD_BUILDKIT_IMAGE", ""),
+		BuildNamespace:       utils.GetEnv("BUILD_NAMESPACE", "vora-builds"),
 	}
 }
 
@@ -87,6 +101,37 @@ func (c *Config) GitHubApp() (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("the GitHub App is half configured, set %s too", strings.Join(missing, ", "))
+}
+
+// Builds reports whether builds are configured. The four settings go together,
+// and a build needs the GitHub App to read the repository, so a partial set, or
+// builds without the App, is an error and startup must stop.
+func (c *Config) Builds() (bool, error) {
+	var missing []string
+	for _, v := range []struct{ name, value string }{
+		{"BUILD_REGISTRY_PUSH", c.BuildRegistryPush},
+		{"BUILD_REGISTRY_PULL", c.BuildRegistryPull},
+		{"BUILD_REGISTRY_API", c.BuildRegistryAPI},
+		{"BUILD_BUILDKIT_IMAGE", c.BuildKitImage},
+	} {
+		if v.value == "" {
+			missing = append(missing, v.name)
+		}
+	}
+	switch len(missing) {
+	case 4:
+		return false, nil
+	case 0:
+	default:
+		return false, fmt.Errorf("builds are half configured, set %s too", strings.Join(missing, ", "))
+	}
+	if app, err := c.GitHubApp(); err != nil || !app {
+		return false, fmt.Errorf("builds read the repository through the GitHub App: set the GITHUB_APP_* variables, or unset the BUILD_* ones")
+	}
+	if !strings.Contains(c.BuildKitImage, "@sha256:") {
+		return false, fmt.Errorf("BUILD_BUILDKIT_IMAGE must be pinned by digest (name@sha256:...)")
+	}
+	return true, nil
 }
 
 // ParseRegions reads "eu=/etc/vora-cloud/eu.kubeconfig,us=/etc/vora-cloud/us.kubeconfig"

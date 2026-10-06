@@ -2,10 +2,12 @@ package dashboard
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -148,10 +150,14 @@ type newProjectData struct {
 	// project. GitHub says whether the GitHub page is offered at all.
 	Repo   *repoChoice
 	GitHub bool
+	// Port is what the app listens on; Dockerfile and Context say how a linked
+	// repository is built (the Dockerfile's path inside the context, and the
+	// folder to build in).
+	Port, Dockerfile, Context string
 }
 
 func (d *Dashboard) newProjectForm(c echo.Context) error {
-	data := newProjectData{Regions: d.cfg.Regions, GitHub: d.cfg.GitHub != nil}
+	data := newProjectData{Regions: d.cfg.Regions, GitHub: d.cfg.GitHub != nil, Port: "80", Dockerfile: "Dockerfile"}
 	installation, repo := c.QueryParam("installation"), c.QueryParam("repo")
 	if d.cfg.GitHub == nil || (installation == "" && repo == "") {
 		return d.render(c, http.StatusOK, "project_new", page{Title: "New project", Data: data})
@@ -172,9 +178,17 @@ func (d *Dashboard) createProject(c echo.Context) error {
 	form := newProjectData{
 		Regions: d.cfg.Regions, Name: strings.TrimSpace(c.FormValue("name")),
 		Slug: strings.TrimSpace(c.FormValue("slug")), Region: c.FormValue("region"),
-		GitHub: d.cfg.GitHub != nil,
+		GitHub: d.cfg.GitHub != nil, Port: strings.TrimSpace(c.FormValue("port")),
+		Dockerfile: strings.TrimSpace(c.FormValue("dockerfile")), Context: strings.TrimSpace(c.FormValue("context")),
 	}
 	in := project.CreateInput{Name: form.Name, Slug: form.Slug, Region: form.Region}
+	if form.Port != "" {
+		port, err := strconv.ParseInt(form.Port, 10, 32)
+		if err != nil || port < 1 || port > 65535 {
+			return d.render(c, http.StatusUnprocessableEntity, "project_new", page{Title: "New project", Error: "The port must be a number between 1 and 65535.", Data: form})
+		}
+		in.Port = int32(port)
+	}
 
 	// Only the two ids come from the form. The repository is checked again, and
 	// its name and branch are what GitHub says, never what was posted.
@@ -190,6 +204,10 @@ func (d *Dashboard) createProject(c echo.Context) error {
 		form.Repo = choice
 		in.Repo, in.DefaultBranch = choice.FullName, choice.DefaultBranch
 		in.GitHubInstallationID, in.GitHubRepoID = choice.InstallationID, choice.ID
+		// How the repository is built. The paths are checked by the service.
+		if cfg, err := json.Marshal(project.BuildSettings{Dockerfile: form.Dockerfile, Context: form.Context}); err == nil {
+			in.BuildConfig = cfg
+		}
 	}
 
 	p, err := d.cfg.Projects.CreateProject(c.Request().Context(), sessionOf(c).UserID, in)

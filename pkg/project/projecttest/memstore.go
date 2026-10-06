@@ -20,12 +20,13 @@ type MemStore struct {
 	projects map[uuid.UUID]*project.Project
 	deps     []*project.Deployment // oldest first
 	Env      map[uuid.UUID]map[string][]byte
+	logs     map[uuid.UUID]string
 	// Clock stamps deployments; each write moves it forward by a millisecond.
 	Clock time.Time
 }
 
 func New() *MemStore {
-	return &MemStore{projects: map[uuid.UUID]*project.Project{}, Env: map[uuid.UUID]map[string][]byte{}, Clock: time.Now()}
+	return &MemStore{projects: map[uuid.UUID]*project.Project{}, Env: map[uuid.UUID]map[string][]byte{}, logs: map[uuid.UUID]string{}, Clock: time.Now()}
 }
 
 // tick advances the clock. Times are whole microseconds, as in the database,
@@ -184,5 +185,36 @@ func (m *MemStore) ListEnv(_ context.Context, p uuid.UUID) (map[string][]byte, e
 
 func (m *MemStore) DeleteEnv(_ context.Context, p uuid.UUID, name string) error {
 	delete(m.Env[p], name)
+	return nil
+}
+
+func (m *MemStore) SetImage(_ context.Context, id uuid.UUID, image, url string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d := m.find(id)
+	if d == nil {
+		return project.ErrNotFound
+	}
+	d.Image, d.URL = image, url
+	d.UpdatedAt = m.tick()
+	return nil
+}
+
+func (m *MemStore) BuildLog(_ context.Context, id uuid.UUID) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.find(id) == nil {
+		return "", project.ErrNotFound
+	}
+	return m.logs[id], nil
+}
+
+func (m *MemStore) SetBuildLog(_ context.Context, id uuid.UUID, log string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.find(id) == nil {
+		return project.ErrNotFound
+	}
+	m.logs[id] = log
 	return nil
 }

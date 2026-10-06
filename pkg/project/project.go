@@ -132,6 +132,13 @@ type Store interface {
 	LatestDeployments(ctx context.Context, owner uuid.UUID) (map[uuid.UUID]Deployment, error)
 	// ListActive returns deployments that have not reached a final status.
 	ListActive(ctx context.Context) ([]Deployment, error)
+	// SetImage records the image a built deployment runs, and the address it will
+	// have. It does not change the status.
+	SetImage(ctx context.Context, id uuid.UUID, image, url string) error
+	// BuildLog and SetBuildLog read and replace a deployment's build log. The
+	// log is not part of Deployment, so listing deployments never carries it.
+	BuildLog(ctx context.Context, id uuid.UUID) (string, error)
+	SetBuildLog(ctx context.Context, id uuid.UUID, log string) error
 	// Move changes the status only if it is still "from" (ErrConflict
 	// otherwise), and records the error text and finish time.
 	Move(ctx context.Context, id uuid.UUID, from, to Status, errText string) error

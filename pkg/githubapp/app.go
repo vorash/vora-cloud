@@ -147,3 +147,21 @@ func (a *App) cached(installationID int64) (string, bool) {
 	}
 	return t.value, true
 }
+
+// RepoToken mints a token that can read one repository's contents and nothing
+// else, for one build. It is not cached: it belongs to one build, and goes away
+// with it. A token broader than asked for is refused rather than used.
+func (a *App) RepoToken(ctx context.Context, installationID, repoID int64) (string, error) {
+	read := "read"
+	tok, _, err := a.api.Apps.CreateInstallationToken(ctx, installationID, &github.InstallationTokenOptions{
+		RepositoryIDs: []int64{repoID},
+		Permissions:   &github.InstallationPermissions{Contents: &read},
+	})
+	if err != nil {
+		return "", fmt.Errorf("githubapp: a token for repository %d of installation %d: %w", repoID, installationID, err)
+	}
+	if tok.GetToken() == "" || len(tok.Repositories) != 1 || tok.Repositories[0].GetID() != repoID || tok.GetPermissions().GetContents() != read {
+		return "", fmt.Errorf("githubapp: GitHub did not scope the token to repository %d with contents:read", repoID)
+	}
+	return tok.GetToken(), nil
+}

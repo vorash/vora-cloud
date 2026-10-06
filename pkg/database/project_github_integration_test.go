@@ -4,6 +4,8 @@ package database
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -116,5 +118,56 @@ func TestAForgottenGitHubDeliveryIsRecordedAgain(t *testing.T) {
 	}
 	if err := deliveries.Forget(ctx, uuid.NewString()); err != nil {
 		t.Errorf("forgetting an unknown delivery: %v", err)
+	}
+}
+
+// The build log is a column of its own, and listing deployments never reads it.
+func TestBuildLogAndImageOfADeployment(t *testing.T) {
+	repo, owner := newTestRepo(t)
+	ctx := context.Background()
+	p := newProject(owner, "gh-build-log")
+	p.GitHubInstallationID, p.GitHubRepoID = 900000003, 900000004
+	if err := repo.CreateProject(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	d := &project.Deployment{ProjectID: p.ID, CommitSHA: strings.Repeat("a", 40), Ref: "refs/heads/main", Status: project.StatusQueued, Region: "eu"}
+	if err := repo.CreateDeployment(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+
+	if log, err := repo.BuildLog(ctx, d.ID); err != nil || log != "" {
+		t.Fatalf("a new deployment's log: %q, %v", log, err)
+	}
+	big := strings.Repeat("log line\n", 20000)
+	if err := repo.SetBuildLog(ctx, d.ID, big); err != nil {
+		t.Fatal(err)
+	}
+	if log, _ := repo.BuildLog(ctx, d.ID); log != big {
+		t.Errorf("the log was not stored: %d bytes", len(log))
+	}
+	if strings.Contains(deploymentColumns, "build_log") {
+		t.Error("deploymentColumns selects the log: every page of deployments would read up to 256 KiB per row")
+	}
+	if got, err := repo.GetDeployment(ctx, d.ID); err != nil || got.Image != "" {
+		t.Errorf("GetDeployment = %+v, %v", got, err)
+	}
+
+	if err := repo.SetImage(ctx, d.ID, "localhost:5000/gh/gh@sha256:abc", "https://gh.eu.example"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := repo.GetDeployment(ctx, d.ID)
+	if got.Image != "localhost:5000/gh/gh@sha256:abc" || got.URL != "https://gh.eu.example" || got.Status != project.StatusQueued {
+		t.Errorf("after SetImage: %+v (the status must not change)", got)
+	}
+	for name, err := range map[string]error{
+		"SetImage":    repo.SetImage(ctx, uuid.New(), "x", "y"),
+		"SetBuildLog": repo.SetBuildLog(ctx, uuid.New(), "x"),
+	} {
+		if !errors.Is(err, project.ErrNotFound) {
+			t.Errorf("%s on an unknown deployment: %v, want ErrNotFound", name, err)
+		}
+	}
+	if _, err := repo.BuildLog(ctx, uuid.New()); !errors.Is(err, project.ErrNotFound) {
+		t.Errorf("BuildLog on an unknown deployment: %v", err)
 	}
 }
