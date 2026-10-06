@@ -1,0 +1,28 @@
+{
+  "ref": "refs/heads/main",
+  "before": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+  "after": "d8f1b0a4c91e3f0e4a2b7a9c5d6e8f1a2b3c4d5e",
+  "created": false,
+  "deleted": false,
+  "forced": false,
+  "base_ref": null,
+  "commits": [
+    {
+      "id": "d8f1b0a4c91e3f0e4a2b7a9c5d6e8f1a2b3c4d5e",
+      "message": "Update the invoice template",
+      "added": [],
+      "removed": [],
+      "modified": ["templates/invoice.html"]
+    }
+  ],
+  "head_commit": { "id": "d8f1b0a4c91e3f0e4a2b7a9c5d6e8f1a2b3c4d5e", "message": "Update the invoice template" },
+  "repository": {
+    "id": 1350744260,
+    "full_name": "octocat/invoicing-platform",
+    "default_branch": "main",
+    "private": true
+  },
+  "installation": { "id": 168273140 },
+  "pusher": { "name": "octocat" },
+  "sender": { "login": "octocat", "id": 1 }
+}

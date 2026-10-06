@@ -632,3 +632,154 @@ func TestCreateProjectGitHubLinkNeedsBothIDs(t *testing.T) {
 		t.Errorf("a full link: %+v, %v", p, err)
 	}
 }
+
+func (e *env) linkedProject(t *testing.T, owner uuid.UUID, slug string, installation, repo int64) *Project {
+	t.Helper()
+	p, err := e.svc.CreateProject(ctx, owner, CreateInput{Name: slug, Slug: slug, Region: "eu", Repo: "octo/web", GitHubInstallationID: installation, GitHubRepoID: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestAPushQueuesADeploymentForTheLinkedProject(t *testing.T) {
+	e := newEnv(t)
+	p := e.linkedProject(t, e.alice, "web", 7, 9)
+
+	got, err := e.svc.QueueFromPush(ctx, PushInput{InstallationID: 7, RepoID: 9, Ref: "refs/heads/main", CommitSHA: strings.Repeat("a", 40)})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("queued %v, %v", got, err)
+	}
+	d := got[0].Deployment
+	if got[0].Project.ID != p.ID || d.ProjectID != p.ID || d.Status != StatusQueued || d.Image != "" || d.Region != "eu" ||
+		d.CommitSHA != strings.Repeat("a", 40) || d.Ref != "refs/heads/main" {
+		t.Errorf("deployment %+v", d)
+	}
+	// It is stored, and the cluster was not touched: there is no image to run yet.
+	if saved, err := e.store.GetDeployment(ctx, d.ID); err != nil || saved.Status != StatusQueued {
+		t.Errorf("stored %+v, %v", saved, err)
+	}
+	if len(e.eu.deployed) != 0 {
+		t.Errorf("the cluster was asked to run %v", e.eu.deployed)
+	}
+}
+
+// The free-text repo is a label anyone can write through the API. A push must
+// be routed on GitHub's ids alone, or a user could claim someone else's
+// repository and have its pushes queue deployments in their project.
+func TestAPushIsRoutedOnTheIDsAndNeverOnTheRepoLabel(t *testing.T) {
+	e := newEnv(t)
+	label, err := e.svc.CreateProject(ctx, e.bob, CreateInput{Name: "x", Slug: "claim", Region: "eu", Repo: "octo/web"}) // no ids
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.linkedProject(t, e.alice, "otherinst", 8, 9) // the same repository id, another installation
+	e.linkedProject(t, e.alice, "otherrepo", 7, 10)
+	mine := e.linkedProject(t, e.alice, "mine", 7, 9)
+
+	got, err := e.svc.QueueFromPush(ctx, PushInput{InstallationID: 7, RepoID: 9, Ref: "refs/heads/main", CommitSHA: strings.Repeat("a", 40)})
+	if err != nil || len(got) != 1 || got[0].Project.ID != mine.ID {
+		t.Fatalf("queued for %v, %v; want only the project with both ids", got, err)
+	}
+	if deps, _ := e.store.ListDeployments(ctx, label.ID, nil, 10); len(deps) != 0 {
+		t.Errorf("the label-only project got %v", deps)
+	}
+}
+
+func TestAPushToARepositoryWithNoProjectQueuesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.project(t, e.alice, "plain")
+	got, err := e.svc.QueueFromPush(ctx, PushInput{InstallationID: 7, RepoID: 9, Ref: "refs/heads/main", CommitSHA: strings.Repeat("a", 40)})
+	if err != nil || len(got) != 0 {
+		t.Errorf("queued %v, %v", got, err)
+	}
+}
+
+func TestAPushNeedsAnInstallationARepositoryAndACommit(t *testing.T) {
+	e := newEnv(t)
+	for name, in := range map[string]PushInput{
+		"no installation": {RepoID: 9, CommitSHA: "a"},
+		"no repository":   {InstallationID: 7, CommitSHA: "a"},
+		"no commit":       {InstallationID: 7, RepoID: 9},
+		"negative":        {InstallationID: -7, RepoID: -9, CommitSHA: "a"},
+	} {
+		if _, err := e.svc.QueueFromPush(ctx, in); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+// Two pushes in a row, or one delivered twice, leave one queued deployment.
+// One that is building or serving is not touched.
+func TestANewerPushSupersedesAnOlderQueuedDeployment(t *testing.T) {
+	e := newEnv(t)
+	p := e.linkedProject(t, e.alice, "web", 7, 9)
+	serving := e.deploy(t, p, "reg/web:1") // deploying
+	first, _ := e.svc.QueueFromPush(ctx, PushInput{InstallationID: 7, RepoID: 9, Ref: "refs/heads/main", CommitSHA: strings.Repeat("a", 40)})
+	second, _ := e.svc.QueueFromPush(ctx, PushInput{InstallationID: 7, RepoID: 9, Ref: "refs/heads/main", CommitSHA: strings.Repeat("b", 40)})
+
+	old, _ := e.store.GetDeployment(ctx, first[0].Deployment.ID)
+	if old.Status != StatusFailed || !strings.Contains(old.Error, "superseded") {
+		t.Errorf("the older queued deployment: %s %q", old.Status, old.Error)
+	}
+	if cur, _ := e.store.GetDeployment(ctx, second[0].Deployment.ID); cur.Status != StatusQueued {
+		t.Errorf("the newest queued deployment: %s", cur.Status)
+	}
+	if s, _ := e.store.GetDeployment(ctx, serving.ID); s.Status != StatusDeploying {
+		t.Errorf("a deployment that was already running was touched: %s", s.Status)
+	}
+}
+
+// Redeploy runs the newest image, and a deployment queued by a push has none.
+func TestRedeployRunsTheLatestImageNotTheNewestDeployment(t *testing.T) {
+	e := newEnv(t)
+	p := e.linkedProject(t, e.alice, "web", 7, 9)
+	if ok, err := e.svc.CanRedeploy(ctx, e.alice, p.ID); err != nil || ok {
+		t.Errorf("a project with no deployment: CanRedeploy = %v, %v", ok, err)
+	}
+	e.deploy(t, p, "reg/web:1")
+	if _, err := e.svc.QueueFromPush(ctx, PushInput{InstallationID: 7, RepoID: 9, Ref: "refs/heads/main", CommitSHA: strings.Repeat("a", 40)}); err != nil {
+		t.Fatal(err)
+	}
+
+	if ok, err := e.svc.CanRedeploy(ctx, e.alice, p.ID); err != nil || !ok {
+		t.Errorf("CanRedeploy = %v, %v, want true", ok, err)
+	}
+	d, err := e.svc.Redeploy(ctx, e.alice, p.ID)
+	if err != nil || d.Image != "reg/web:1" {
+		t.Fatalf("Redeploy = %+v, %v; want the image of the earlier deployment", d, err)
+	}
+}
+
+func TestRedeployWithOnlyQueuedDeploymentsHasNoImage(t *testing.T) {
+	e := newEnv(t)
+	p := e.linkedProject(t, e.alice, "web", 7, 9)
+	if _, err := e.svc.QueueFromPush(ctx, PushInput{InstallationID: 7, RepoID: 9, Ref: "refs/heads/main", CommitSHA: strings.Repeat("a", 40)}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := e.svc.CanRedeploy(ctx, e.alice, p.ID); ok {
+		t.Error("CanRedeploy is true with no image")
+	}
+	if _, err := e.svc.Redeploy(ctx, e.alice, p.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("Redeploy = %v, want ErrInvalid", err)
+	}
+	if _, err := e.svc.CanRedeploy(ctx, e.bob, p.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("another user's CanRedeploy = %v, want ErrNotFound", err)
+	}
+}
+
+// Many pushes without a builder must not hide the one image there is.
+func TestRedeployFindsAnImageBehindManyQueuedDeployments(t *testing.T) {
+	e := newEnv(t)
+	p := e.linkedProject(t, e.alice, "web", 7, 9)
+	e.deploy(t, p, "reg/web:1")
+	for i := range 120 {
+		sha := fmt.Sprintf("%040x", i+1)
+		if _, err := e.svc.QueueFromPush(ctx, PushInput{InstallationID: 7, RepoID: 9, Ref: "refs/heads/main", CommitSHA: sha}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d, err := e.svc.Redeploy(ctx, e.alice, p.ID); err != nil || d.Image != "reg/web:1" {
+		t.Errorf("Redeploy = %+v, %v", d, err)
+	}
+}

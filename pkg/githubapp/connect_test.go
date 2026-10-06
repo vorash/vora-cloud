@@ -76,6 +76,13 @@ type fakeConnectGitHub struct {
 	installTokens int        // installation tokens minted
 	pageSize      int        // repositories per page; 0 returns them all at once
 	repoPages     int        // pages of the installation's repositories served
+	statuses      []statusRequest
+	statusCode    int // non-zero: answer a status request with this
+}
+
+type statusRequest struct {
+	path, bearer string
+	body         map[string]any
 }
 
 func account(id int, login, typ string) map[string]any {
@@ -129,6 +136,16 @@ func (f *fakeConnectGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"total_count": f.totalRepos, "repositories": list})
+	case strings.HasPrefix(r.URL.Path, "/repos/") && strings.Contains(r.URL.Path, "/statuses/") && r.Method == http.MethodPost:
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.statuses = append(f.statuses, statusRequest{r.URL.Path, bearer, body})
+		if f.statusCode != 0 {
+			http.Error(w, `{"message":"Validation Failed"}`, f.statusCode)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1,"state":"pending"}`))
 	case strings.HasPrefix(r.URL.Path, "/repositories/"):
 		// Any token can read a public repository by id, the installation's or not.
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": 999, "full_name": "stranger/public-repo", "private": false, "default_branch": "main"})

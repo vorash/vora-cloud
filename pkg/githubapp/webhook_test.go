@@ -55,6 +55,13 @@ func (f *fakeDeliveries) Record(_ context.Context, id, event string) (bool, erro
 	return true, nil
 }
 
+func (f *fakeDeliveries) Forget(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.seen, id)
+	return nil
+}
+
 type delivery struct {
 	event, id, signature, contentType string
 	body                              []byte

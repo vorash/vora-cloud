@@ -217,6 +217,8 @@ type projectData struct {
 	// Live is set while the newest deployment is still in progress; the page then
 	// offers the event stream.
 	Live bool
+	// CanRedeploy is set when some deployment has an image to run again.
+	CanRedeploy bool
 }
 
 // projectID reads the :id parameter; a malformed id is "not found", the same
@@ -271,6 +273,9 @@ func (d *Dashboard) showProjectWith(c echo.Context, status int, msg string) erro
 		}
 	}
 	data.Live = data.Latest != nil && !data.Latest.Status.Final()
+	if data.CanRedeploy, err = d.cfg.Projects.CanRedeploy(ctx, user, id); err != nil {
+		return d.serverError(c, err)
+	}
 	return d.render(c, status, "project", page{Title: p.Name, Error: msg, Data: data})
 }
 

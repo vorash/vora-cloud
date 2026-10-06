@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-05
-- Amended: 2026-10-05 (decision 6, for creating a project from a repository)
+- Amended: 2026-10-06 (decisions 6 and 7: a project from a repository, and pushes)
 
 ## Context
 
@@ -65,6 +65,21 @@ only a label: it is not shown as a connected repository and must never be used
 to route a push, which would let anyone claim another person's `owner/repo`.
 Pushes are matched on the installation id and the repository id.
 
+**7. A push to the default branch queues a deployment, routed on ids.**
+The webhook acts on a `push` only when its ref is the repository's default
+branch as the payload names it now (not the one stored when the project was
+created), the branch is not being deleted, and the commit id and repository
+name are well formed (they end up in a URL path). It finds projects by the
+installation id and repository id, never by the free-text `repo`. A deployment
+is queued with no image; nothing builds one yet, so it stays `queued`, and a
+newer push fails an older queued one as superseded, so a redelivery or two
+quick pushes leave one. The delivery is recorded before it is handled and
+forgotten if handling fails, so GitHub's redelivery is handled and a copy after
+success is not. The commit status (`pending`, context `vora/<slug>`) is posted
+after the webhook has answered, because GitHub gives a delivery ten seconds, and
+a failure to post it is logged, not retried through the webhook: the deployments
+exist either way, and a redelivery would only queue them again.
+
 ## Consequences
 
 - The page does a second navigation after GitHub. It is a redirect the user
@@ -82,3 +97,5 @@ Pushes are matched on the installation id and the repository id.
 - One repository can back several projects (for example the apps of a
   monorepo); a push will then reach each of them.
 - A project that already exists cannot be linked to a repository yet.
+- Until builds exist, every push to a linked repository's default branch leaves a
+  `pending` status "Queued. Builds are not available yet." on its commit.

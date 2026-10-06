@@ -6,7 +6,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/vorash/vora-cloud/pkg/project"
 )
 
 // Runs against a migrated PostgreSQL (make test-database).
@@ -67,5 +70,51 @@ func TestProjectGitHubLinkIsBothOrNeither(t *testing.T) {
 		if !ok || pgErr.ConstraintName != "projects_github_link" {
 			t.Errorf("%s: err = %v, want a projects_github_link violation", name, err)
 		}
+	}
+}
+
+func TestProjectsAreFoundByGitHubIDsOnly(t *testing.T) {
+	repo, owner := newTestRepo(t)
+	ctx := context.Background()
+	inst, rid := int64(900000001), int64(900000002)
+
+	linked := newProject(owner, "gh-push-linked")
+	linked.Repo, linked.GitHubInstallationID, linked.GitHubRepoID = "octo/web", inst, rid
+	other := newProject(owner, "gh-push-otherinst")
+	other.GitHubInstallationID, other.GitHubRepoID = inst+1, rid
+	label := newProject(owner, "gh-push-label")
+	label.Repo = "octo/web" // the label alone never matches
+	for _, p := range []*project.Project{linked, other, label} {
+		if err := repo.CreateProject(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := repo.ListProjectsByGitHub(ctx, inst, rid)
+	if err != nil || len(got) != 1 || got[0].ID != linked.ID {
+		t.Fatalf("found %+v, %v; want only the project with both ids", got, err)
+	}
+	if got, _ := repo.ListProjectsByGitHub(ctx, 0, 0); len(got) != 0 {
+		t.Errorf("zero ids matched %d projects (NULL must never match)", len(got))
+	}
+}
+
+func TestAForgottenGitHubDeliveryIsRecordedAgain(t *testing.T) {
+	deliveries, db := newTestDeliveries(t)
+	ctx := context.Background()
+	id := uuid.NewString()
+	t.Cleanup(func() { _, _ = db.Exec(ctx, `DELETE FROM github_deliveries WHERE delivery_id = $1`, id) })
+
+	if fresh, err := deliveries.Record(ctx, id, "push"); err != nil || !fresh {
+		t.Fatalf("Record = %v, %v", fresh, err)
+	}
+	if err := deliveries.Forget(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if fresh, err := deliveries.Record(ctx, id, "push"); err != nil || !fresh {
+		t.Errorf("after Forget: Record = %v, %v; want it handled as new", fresh, err)
+	}
+	if err := deliveries.Forget(ctx, uuid.NewString()); err != nil {
+		t.Errorf("forgetting an unknown delivery: %v", err)
 	}
 }

@@ -78,6 +78,27 @@ func (r *ProjectRepository) ListProjects(ctx context.Context, owner uuid.UUID) (
 	return out, rows.Err()
 }
 
+// ListProjectsByGitHub finds the projects tied to a repository by GitHub's ids.
+// A project with no link has NULL ids and never matches.
+func (r *ProjectRepository) ListProjectsByGitHub(ctx context.Context, installationID, repoID int64) ([]project.Project, error) {
+	rows, err := r.db.Query(ctx, `SELECT `+projectColumns+` FROM projects
+		WHERE github_installation_id = $1 AND github_repo_id = $2 ORDER BY created_at`, installationID, repoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []project.Project
+	for rows.Next() {
+		p, err := scanProject(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
 func (r *ProjectRepository) DeleteProject(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.db.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
 	if err != nil {

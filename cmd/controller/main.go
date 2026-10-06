@@ -163,6 +163,7 @@ func main() {
 	// variable is assigned only when it is on: a nil *Connector in the interface
 	// would not be a nil interface, and the dashboard would serve the routes.
 	var githubConn dashboard.GitHub
+	var githubStatuses githubapp.StatusPoster // commit statuses; nil without the App
 	githubOn, err := cfg.GitHubApp()
 	if err != nil {
 		log.Fatal(err)
@@ -180,6 +181,7 @@ func main() {
 		if cfg.PublicURL != "" {
 			callback = strings.TrimRight(cfg.PublicURL, "/") + "/github/callback"
 		}
+		githubStatuses = githubApp
 		githubConn = githubapp.NewConnector(githubApp, database.NewGitHubInstallationRepository(db),
 			cfg.GitHubAppSlug, cfg.GitHubClientID, cfg.GitHubClientSecret, callback)
 	} else {
@@ -207,6 +209,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to set up the GitHub webhook: %v", err)
 		}
+		// A push to a repository's default branch queues a deployment for each
+		// project tied to it, and the commit gets a status when the App is configured.
+		hook.WithPushHandler(githubapp.NewPushDeployments(projectSvc, githubStatuses, strings.TrimRight(cfg.PublicURL, "/")))
 		hook.Register(restServer.Echo())
 		go func() {
 			for {
