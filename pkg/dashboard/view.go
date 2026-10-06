@@ -16,6 +16,13 @@ func (d *Dashboard) funcs() template.FuncMap {
 		"ago":   func(t time.Time) string { return relTime(d.now(), t) },
 		"exact": func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
 		"iso":   func(t time.Time) string { return t.UTC().Format(time.RFC3339) },
+		// short is the first seven characters of a commit id.
+		"short": func(sha string) string {
+			if len(sha) > 7 {
+				return sha[:7]
+			}
+			return sha
+		},
 		// host shows a deployment's URL without its scheme.
 		"host": func(u string) string { return strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://") },
 	}

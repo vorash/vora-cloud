@@ -4,7 +4,7 @@
 <div class="page-head">
   <div><h1 class="page-title">{{.Data.Project.Name}}</h1>
     <p class="page-sub">{{if and $latest $latest.URL}}<a class="mono" href="{{$latest.URL}}" data-copy rel="noopener noreferrer">{{host $latest.URL}}</a>{{else}}No address until you deploy.{{end}}</p></div>
-  <div class="head-actions"><a class="btn btn-secondary" href="/projects/{{$id}}/env">Environment</a>{{if $latest}}<form method="post" action="/projects/{{$id}}/redeploy" data-busy="Redeploying…"><input type="hidden" name="csrf" value="{{$csrf}}"><button class="btn btn-secondary" type="submit">Redeploy latest image</button></form>{{end}}</div>
+  <div class="head-actions"><a class="btn btn-secondary" href="/projects/{{$id}}/env">Environment</a>{{if .Data.CanRedeploy}}<form method="post" action="/projects/{{$id}}/redeploy" data-busy="Redeploying…"><input type="hidden" name="csrf" value="{{$csrf}}"><button class="btn btn-secondary" type="submit">Redeploy latest image</button></form>{{end}}</div>
 </div>
 <div class="cols"{{if .Data.Live}} data-events="/projects/{{$id}}/events"{{end}}>
   <div class="stack">
@@ -22,7 +22,7 @@
 {{if .Data.Deployments}}      <div class="panel tl-wrap"><ul class="tl">
 {{range .Data.Deployments}}        <li class="tl-item" id="deployment-{{.ID}}" data-deployment="{{.ID}}">
           {{template "status" .Status}}
-          <div class="tl-main"><code>{{.Image}}</code></div>
+          <div class="tl-main">{{if .Image}}<code>{{.Image}}</code>{{else}}<span class="cell-none">Queued by a push{{if .CommitSHA}} of <code>{{short .CommitSHA}}</code>{{end}}</span>{{end}}</div>
           <div class="tl-time">{{template "time" .CreatedAt}}</div>
           {{if and (eq .Status "ready") (ne .ID $latest.ID)}}<form class="tl-act" method="post" action="/projects/{{$id}}/rollback" data-busy="Rolling back…"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="deployment" value="{{.ID}}"><button class="btn btn-quiet btn-sm" type="submit">Roll back to this</button></form>{{end}}
           {{if .Error}}<div class="tl-err"><details class="err"><summary>{{.Error}}</summary></details></div>{{end}}
@@ -47,7 +47,7 @@
         <div><dt>Region</dt><dd class="mono">{{.Data.Project.Region}}</dd></div>
 {{if .Data.Project.GitHubRepoID}}        <div><dt>Repository</dt><dd class="mono"><a href="https://github.com/{{.Data.Project.Repo}}" rel="noopener noreferrer">{{.Data.Project.Repo}}</a><span class="sub">{{.Data.Project.DefaultBranch}}</span></dd></div>
 {{end}}
-        <div><dt>Latest image</dt><dd class="mono">{{with $latest}}{{.Image}}{{else}}<span class="cell-none">None</span>{{end}}</dd></div>
+        <div><dt>Latest image</dt><dd class="mono">{{if and $latest $latest.Image}}{{$latest.Image}}{{else}}<span class="cell-none">None</span>{{end}}</dd></div>
       </dl>
     </div>
   </aside>

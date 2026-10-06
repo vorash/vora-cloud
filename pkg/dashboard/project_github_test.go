@@ -212,3 +212,41 @@ func TestSlugSuggestions(t *testing.T) {
 		}
 	}
 }
+
+// A deployment queued by a push has no image. The page must say what it is
+// rather than show an empty cell, and must not offer to redeploy an image that
+// does not exist.
+func TestAQueuedDeploymentIsShownWithoutAnImage(t *testing.T) {
+	v, _ := newRepoEnv(t)
+	c := v.login(t, "alice@example.com", "alice-pass")
+	p, err := v.projects.CreateProject(t.Context(), aliceID, project.CreateInput{Name: "Web", Slug: "web", Region: "eu", Repo: "octo/web", GitHubInstallationID: 1, GitHubRepoID: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.projects.QueueFromPush(t.Context(), project.PushInput{InstallationID: 1, RepoID: 10, Ref: "refs/heads/main", CommitSHA: strings.Repeat("a", 40)}); err != nil {
+		t.Fatal(err)
+	}
+
+	page := v.send("GET", "/projects/"+p.ID.String(), nil, c, nil).body
+	for _, want := range []string{"queued", "Queued by a push of <code>aaaaaaa</code>"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the project page lacks %q", want)
+		}
+	}
+	if strings.Contains(page, "<code></code>") || strings.Contains(page, "/redeploy") {
+		t.Errorf("an empty image, or a Redeploy button with no image to run: %s", page)
+	}
+	env := v.send("GET", "/projects/"+p.ID.String()+"/env", nil, c, nil).body
+	if strings.Contains(env, "/redeploy") || !strings.Contains(env, "Deploy an image from the project page first") {
+		t.Errorf("the environment page offers Redeploy with no image")
+	}
+
+	// Once there is an image, the older one is what Redeploy runs.
+	if _, err := v.projects.Deploy(t.Context(), aliceID, p.ID, project.DeployInput{Image: "reg/web:1"}); err != nil {
+		t.Fatal(err)
+	}
+	page = v.send("GET", "/projects/"+p.ID.String(), nil, c, nil).body
+	if !strings.Contains(page, "/redeploy") || !strings.Contains(page, "reg/web:1") {
+		t.Errorf("no Redeploy once there is an image")
+	}
+}

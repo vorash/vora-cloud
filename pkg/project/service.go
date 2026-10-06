@@ -249,15 +249,48 @@ func (s *Service) Redeploy(ctx context.Context, owner, project uuid.UUID) (*Depl
 	if err != nil {
 		return nil, err
 	}
-	deps, err := s.store.ListDeployments(ctx, project, nil, 1)
+	latest, err := s.latestWithImage(ctx, project)
 	if err != nil {
 		return nil, err
 	}
-	if len(deps) == 0 {
-		return nil, invalid("project has no deployment to redeploy")
+	if latest == nil {
+		return nil, invalid("project has no deployment with an image to redeploy")
 	}
-	latest := deps[0] // newest first
 	return s.deploy(ctx, p, DeployInput{Image: latest.Image, CommitSHA: latest.CommitSHA, Ref: latest.Ref})
+}
+
+// CanRedeploy says whether the project has an image to run again.
+func (s *Service) CanRedeploy(ctx context.Context, owner, project uuid.UUID) (bool, error) {
+	if _, err := s.owned(ctx, owner, project); err != nil {
+		return false, err
+	}
+	latest, err := s.latestWithImage(ctx, project)
+	return latest != nil, err
+}
+
+// latestWithImage is the project's newest deployment that has an image, or nil.
+// A deployment queued by a push has none until it is built, so the newest
+// deployment is not always the one to run again.
+func (s *Service) latestWithImage(ctx context.Context, project uuid.UUID) (*Deployment, error) {
+	const pageSize, maxPages = 50, 20
+	var after *Cursor
+	for range maxPages {
+		deps, err := s.store.ListDeployments(ctx, project, after, pageSize) // newest first
+		if err != nil {
+			return nil, err
+		}
+		for i := range deps {
+			if deps[i].Image != "" {
+				return &deps[i], nil
+			}
+		}
+		if len(deps) < pageSize {
+			return nil, nil
+		}
+		last := deps[len(deps)-1]
+		after = &Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return nil, nil
 }
 
 // Rollback deploys the image of an earlier deployment that became ready. The
@@ -279,6 +312,64 @@ func (s *Service) Rollback(ctx context.Context, owner, project, target uuid.UUID
 		return nil, invalid("deployment %s never became ready, so it is not a rollback target", old.ID)
 	}
 	return s.deploy(ctx, p, DeployInput{Image: old.Image, CommitSHA: old.CommitSHA, Ref: old.Ref})
+}
+
+// PushInput is a push to a repository's default branch, as GitHub reported it.
+type PushInput struct {
+	InstallationID, RepoID int64
+	Ref, CommitSHA         string
+}
+
+// Queued is a project and the deployment queued for it.
+type Queued struct {
+	Project    Project
+	Deployment Deployment
+}
+
+// QueueFromPush queues a deployment of the pushed commit for every project tied
+// to the repository by GitHub's installation and repository ids. It matches on
+// the ids and on nothing else: the free-text repo of a project is a label that
+// anyone can write, and routing on it would let a user claim someone else's
+// repository. The deployment has no image yet; building one comes later, and
+// until it exists the deployment stays queued. A newer push replaces an older
+// queued one, which is failed as superseded, so redelivering a push or pushing
+// twice in a row leaves one queued deployment.
+func (s *Service) QueueFromPush(ctx context.Context, in PushInput) ([]Queued, error) {
+	if in.InstallationID <= 0 || in.RepoID <= 0 || in.CommitSHA == "" {
+		return nil, invalid("a push needs an installation, a repository and a commit")
+	}
+	projects, err := s.store.ListProjectsByGitHub(ctx, in.InstallationID, in.RepoID)
+	if err != nil {
+		return nil, err
+	}
+	var out []Queued
+	for _, p := range projects {
+		d := &Deployment{ProjectID: p.ID, CommitSHA: in.CommitSHA, Ref: in.Ref, Status: StatusQueued, Region: p.Region}
+		if err := s.store.CreateDeployment(ctx, d); err != nil {
+			return out, err
+		}
+		s.supersedeQueued(ctx, p.ID, d.ID)
+		out = append(out, Queued{Project: p, Deployment: *d})
+	}
+	return out, nil
+}
+
+// supersedeQueued fails the project's older deployments that are still only
+// queued. It leaves the ones that are building or deploying alone: they are
+// serving, or about to.
+func (s *Service) supersedeQueued(ctx context.Context, project, keep uuid.UUID) {
+	deps, err := s.store.ListActive(ctx)
+	if err != nil {
+		log.Printf("project %s: list active deployments to supersede: %v", project, err)
+		return
+	}
+	for i := range deps {
+		if deps[i].ProjectID == project && deps[i].ID != keep && deps[i].Status == StatusQueued {
+			if err := s.move(ctx, &deps[i], StatusFailed, "superseded by a newer push"); err != nil && !errors.Is(err, ErrConflict) {
+				log.Printf("deployment %s: supersede: %v", deps[i].ID, err)
+			}
+		}
+	}
 }
 
 func (s *Service) deploy(ctx context.Context, p *Project, in DeployInput) (*Deployment, error) {

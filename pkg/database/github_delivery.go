@@ -27,6 +27,13 @@ func (r *GitHubDeliveryRepository) Record(ctx context.Context, id, event string)
 	return tag.RowsAffected() == 1, nil
 }
 
+// Forget removes a delivery, so that GitHub's redelivery of it is handled as
+// new. It is for a delivery whose handling failed.
+func (r *GitHubDeliveryRepository) Forget(ctx context.Context, id string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM github_deliveries WHERE delivery_id = $1`, id)
+	return err
+}
+
 // DeleteOlderThan forgets deliveries received before the cutoff.
 func (r *GitHubDeliveryRepository) DeleteOlderThan(ctx context.Context, cutoff time.Time) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM github_deliveries WHERE received_at < $1`, cutoff)

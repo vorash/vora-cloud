@@ -118,6 +118,9 @@ type Store interface {
 	GetProject(ctx context.Context, id uuid.UUID) (*Project, error)
 	ListProjects(ctx context.Context, owner uuid.UUID) ([]Project, error)
 	DeleteProject(ctx context.Context, id uuid.UUID) error
+	// ListProjectsByGitHub returns the projects tied to a repository by GitHub's
+	// ids, whoever owns them.
+	ListProjectsByGitHub(ctx context.Context, installationID, repoID int64) ([]Project, error)
 
 	CreateDeployment(ctx context.Context, d *Deployment) error
 	GetDeployment(ctx context.Context, id uuid.UUID) (*Deployment, error)

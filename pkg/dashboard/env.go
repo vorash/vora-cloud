@@ -20,7 +20,8 @@ type envData struct {
 	Names   []string // sorted
 	// Name refills the name field after a refused form.
 	Name string
-	// HasDeployment says whether Redeploy has an image to run again.
+	// HasDeployment says whether Redeploy has an image to run again. A deployment
+	// queued by a push has none yet.
 	HasDeployment bool
 }
 
@@ -56,11 +57,11 @@ func (d *Dashboard) showEnvWith(c echo.Context, status int, msg, name string) er
 		return d.serverError(c, err)
 	}
 	sort.Strings(names)
-	latest, err := d.cfg.Projects.ListDeployments(ctx, user, id, project.Page{Limit: 1})
+	canRedeploy, err := d.cfg.Projects.CanRedeploy(ctx, user, id)
 	if err != nil {
 		return d.serverError(c, err)
 	}
-	data := envData{Project: p, Names: names, Name: name, HasDeployment: len(latest.Deployments) > 0}
+	data := envData{Project: p, Names: names, Name: name, HasDeployment: canRedeploy}
 	return d.render(c, status, "env", page{Title: "Environment variables", Error: msg, Notice: notices[c.QueryParam("done")], Data: data})
 }
 

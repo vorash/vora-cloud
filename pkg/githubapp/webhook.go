@@ -7,11 +7,14 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -37,6 +40,21 @@ var events = map[string]bool{
 type Deliveries interface {
 	// Record stores a delivery and reports whether it was new.
 	Record(ctx context.Context, id, event string) (bool, error)
+	// Forget removes one, so GitHub's redelivery of it is handled as new.
+	Forget(ctx context.Context, id string) error
+}
+
+// Push is a push to a repository's default branch.
+type Push struct {
+	InstallationID, RepoID int64
+	RepoFullName           string
+	Ref, CommitSHA         string
+}
+
+// PushHandler acts on a push. An error means it was not handled: the delivery is
+// forgotten and the webhook answers 500, so that GitHub redelivers it.
+type PushHandler interface {
+	HandlePush(ctx context.Context, p Push) error
 }
 
 // Webhook receives GitHub's events. A request is trusted only if it carries a
@@ -44,6 +62,7 @@ type Deliveries interface {
 type Webhook struct {
 	secret     []byte
 	deliveries Deliveries
+	push       PushHandler
 }
 
 // NewWebhook returns the receiver. An empty secret is refused: an HMAC with an
@@ -53,6 +72,13 @@ func NewWebhook(secret string, deliveries Deliveries) (*Webhook, error) {
 		return nil, errors.New("githubapp: the webhook secret is empty")
 	}
 	return &Webhook{secret: []byte(secret), deliveries: deliveries}, nil
+}
+
+// WithPushHandler sets what happens to a push to a repository's default branch.
+// Without one, a push is recorded and nothing more.
+func (w *Webhook) WithPushHandler(h PushHandler) *Webhook {
+	w.push = h
+	return w
 }
 
 // Register adds the endpoint to e. It sits outside the authenticated /api/v1
@@ -102,9 +128,9 @@ func (w *Webhook) receive(c echo.Context) error {
 	}
 
 	// Only a signed delivery is recorded; otherwise anyone could fill the table
-	// with ids that real deliveries would later be dropped for.
-	// TODO(#20): once an event is processed, record it after the work succeeds,
-	// so a redelivery of a failed one is not swallowed as a duplicate.
+	// with ids that real deliveries would later be dropped for. It is recorded
+	// before it is handled, so two copies arriving at once are handled once, and
+	// forgotten again if handling fails, so a redelivery is not swallowed.
 	fresh, err := w.deliveries.Record(req.Context(), id, event)
 	if err != nil {
 		log.Printf("github webhook: recording delivery %s: %v", id, err)
@@ -115,7 +141,64 @@ func (w *Webhook) receive(c echo.Context) error {
 		return c.JSON(http.StatusOK, status{"duplicate"})
 	}
 	log.Printf("github webhook: received %s delivery %s", event, id)
+
+	if event == "push" && w.push != nil {
+		if code, err := w.handlePush(req.Context(), body); err != nil {
+			log.Printf("github webhook: push delivery %s: %v", id, err)
+			if ferr := w.deliveries.Forget(req.Context(), id); ferr != nil {
+				log.Printf("github webhook: forgetting delivery %s: %v", id, ferr)
+			}
+			return c.JSON(code, status{"could not handle the push"})
+		}
+	}
 	return c.JSON(http.StatusOK, status{"accepted"})
+}
+
+var (
+	// A commit id, as GitHub sends it: 40 hex digits, or 64 for a SHA-256 repository.
+	commitRe = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+	repoRe   = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+)
+
+// errMalformedPush is a signed push whose payload is not one.
+var errMalformedPush = errors.New("malformed push payload")
+
+type pushPayload struct {
+	Ref     string `json:"ref"`
+	After   string `json:"after"`
+	Deleted bool   `json:"deleted"`
+	Repo    struct {
+		ID            int64  `json:"id"`
+		FullName      string `json:"full_name"`
+		DefaultBranch string `json:"default_branch"`
+	} `json:"repository"`
+	Installation struct {
+		ID int64 `json:"id"`
+	} `json:"installation"`
+}
+
+// handlePush forwards a push to the repository's default branch, and ignores
+// anything else: a tag, another branch, a deleted branch. It returns the status
+// to answer with when it fails.
+func (w *Webhook) handlePush(ctx context.Context, body []byte) (int, error) {
+	var p pushPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("%w: %v", errMalformedPush, err)
+	}
+	if p.Repo.ID <= 0 || p.Installation.ID <= 0 || !repoRe.MatchString(p.Repo.FullName) || p.Repo.DefaultBranch == "" ||
+		!strings.HasPrefix(p.Ref, "refs/") || !commitRe.MatchString(p.After) {
+		return http.StatusBadRequest, errMalformedPush
+	}
+	if p.Deleted || strings.Trim(p.After, "0") == "" || p.Ref != "refs/heads/"+p.Repo.DefaultBranch {
+		return http.StatusOK, nil
+	}
+	err := w.push.HandlePush(ctx, Push{
+		InstallationID: p.Installation.ID, RepoID: p.Repo.ID, RepoFullName: p.Repo.FullName, Ref: p.Ref, CommitSHA: p.After,
+	})
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return http.StatusOK, nil
 }
 
 // validSignature checks X-Hub-Signature-256, "sha256=" and the hex HMAC-SHA256

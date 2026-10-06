@@ -46,6 +46,16 @@ func (m *MemStore) CreateProject(_ context.Context, p *project.Project) error {
 	return nil
 }
 
+func (m *MemStore) ListProjectsByGitHub(_ context.Context, installationID, repoID int64) ([]project.Project, error) {
+	var out []project.Project
+	for _, p := range m.projects {
+		if p.GitHubInstallationID == installationID && p.GitHubRepoID == repoID && repoID != 0 {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
+}
+
 func (m *MemStore) GetProject(_ context.Context, id uuid.UUID) (*project.Project, error) {
 	if p, ok := m.projects[id]; ok {
 		c := *p
