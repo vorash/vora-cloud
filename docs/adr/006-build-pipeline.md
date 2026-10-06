@@ -1,6 +1,6 @@
 # ADR 006 - Build pipeline
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-06
 
 ## Context
@@ -91,22 +91,20 @@ first.
 8. **Cache** is exported to the registry (`--export-cache type=registry`) and
    imported by the next build, so a Job per build is not a cold build.
 
-## For the owner to decide
+## Decided by the owner (2026-10-06)
 
-- **The registry is writable by every build.** Decision 2 closes the node and the
-  cluster, but not this: a Dockerfile in a project can replace or delete another
-  project's image, and a deployment would then run it. For one trusted owner and
-  a closed beta that may be acceptable. It must not be accepted for a second
-  user's code. Closing it means a credential per build that can write only that
-  project's repository (a registry with token authentication), or a build that
-  writes an image archive and a trusted step that pushes it. This is a larger
-  piece of work than the pipeline, and is better done before untrusted code than
-  after.
-- **Builds share the node with everything else.** One build at a time keeps the
-  apps responsive on 4 vCPU, but a build's memory and disk compete with them.
+- **The registry stays writable by every build, for now.** Decision 2 closes the
+  node and the cluster, but a Dockerfile in a project can still replace or delete
+  another project's image, and a deployment would then run it. The owner accepts
+  this for the closed beta, where the owner is the only user. It must be closed
+  before a second user's code is built: either a credential per build that can
+  write only that project's repository (a registry with token authentication), or
+  a build that writes an image archive and a trusted step that pushes it.
+- **Builds share the node** with the control plane and the apps, one at a time.
   Moving builds to their own node waits for the second region.
-- **Apps are not reachable from the internet yet.** The app hosts need their own
-  Pangolin resource. A build can succeed and deploy and still not be visible.
+- **App hosts** (`<slug>.stg.cloud.vora.sh`) are not reachable from the internet
+  until they have a Pangolin resource and a DNS record. A build can succeed and
+  deploy and still not be visible. This is settled separately from the pipeline.
 
 ## Consequences
 
