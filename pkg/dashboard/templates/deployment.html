@@ -1,0 +1,16 @@
+{{define "content"}}
+{{$id := .Data.Project.ID}}{{$dep := .Data.Deployment}}
+<div class="page-head">
+  <div><h1 class="page-title">Build log</h1>
+    <p class="page-sub"><a href="/projects/{{$id}}">{{.Data.Project.Name}}</a>{{if $dep.CommitSHA}} · <code>{{short $dep.CommitSHA}}</code>{{end}}</p></div>
+  <div class="head-actions"><a class="btn btn-secondary" href="/projects/{{$id}}/deployments/{{$dep.ID}}/log">Raw text</a></div>
+</div>
+<section aria-labelledby="log-h">
+  <div class="panel">
+    <div class="panel-head"><h2 id="log-h" class="section-title">Output</h2></div>
+    <div class="log-meta" data-log-status>{{template "status" $dep.Status}}{{if $dep.Error}} <span class="sub" data-log-error>{{$dep.Error}}</span>{{end}}</div>
+    <pre class="buildlog" id="build-log" tabindex="0"{{if .Data.Streaming}} data-log-stream="/projects/{{$id}}/deployments/{{$dep.ID}}/log/stream"{{if .Data.Empty}} data-empty{{end}}{{end}}>{{.Data.Log}}</pre>
+  </div>
+  <p class="section-note"{{if .Data.Streaming}} data-live-note{{end}}>{{if .Data.Streaming}}The log updates while the build runs.{{else}}This build has finished.{{end}}</p>
+</section>
+{{end}}

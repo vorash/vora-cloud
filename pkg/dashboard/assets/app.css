@@ -188,6 +188,9 @@ fieldset.field { min-width: 0; margin: 0 0 18px; padding: 0; border: 0; }
 .tl-time { grid-column: 2; grid-row: 1 / span 2; align-self: start; padding-top: 3px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .tl-act { grid-column: 1 / -1; justify-self: start; margin: 0; }
 .tl-act .btn { margin-left: -11px; }
+.log-meta { padding: 14px 20px; }
+.buildlog { margin: 0; padding: 16px 20px; max-height: 70vh; overflow: auto; background: var(--sunk); color: var(--ink-2); font: 12.5px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 0 0 10px 10px; }
+.buildlog:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 .tl-err { grid-column: 1 / -1; min-width: 0; }
 details.err summary { position: relative; display: block; padding: 4px 0 0 16px; color: var(--deny-ink); font: 13px/1.5 var(--mono); list-style: none; cursor: pointer; border-radius: 4px; }
 details.err summary::-webkit-details-marker { display: none; }

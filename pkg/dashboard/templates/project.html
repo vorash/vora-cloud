@@ -25,7 +25,7 @@
           <div class="tl-main">{{if .Image}}<code>{{.Image}}</code>{{else}}<span class="cell-none">Queued by a push{{if .CommitSHA}} of <code>{{short .CommitSHA}}</code>{{end}}</span>{{end}}</div>
           <div class="tl-time">{{template "time" .CreatedAt}}</div>
           {{if and (eq .Status "ready") (ne .ID $latest.ID)}}<form class="tl-act" method="post" action="/projects/{{$id}}/rollback" data-busy="Rolling back…"><input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="deployment" value="{{.ID}}"><button class="btn btn-quiet btn-sm" type="submit">Roll back to this</button></form>{{end}}
-          {{if and .CommitSHA (ne .Status "queued")}}<a class="tl-act btn btn-quiet btn-sm" href="/projects/{{$id}}/deployments/{{.ID}}/log">Build log</a>{{end}}
+          {{if and .CommitSHA (ne .Status "queued")}}<a class="tl-act btn btn-quiet btn-sm" href="/projects/{{$id}}/deployments/{{.ID}}">Build log</a>{{end}}
           {{if .Error}}<div class="tl-err"><details class="err"><summary>{{.Error}}</summary></details></div>{{end}}
         </li>
 {{end}}      </ul></div>
