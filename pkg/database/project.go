@@ -23,12 +23,14 @@ func NewProjectRepository(db *DB) *ProjectRepository {
 }
 
 const projectColumns = `id, owner_id, name, slug, repo, default_branch, region, build_config,
-	port, replicas, cpu_millis, memory_mib, health_path, created_at, updated_at`
+	port, replicas, cpu_millis, memory_mib, health_path, created_at, updated_at,
+	COALESCE(github_installation_id, 0), COALESCE(github_repo_id, 0)`
 
 func scanProject(row pgx.Row) (*project.Project, error) {
 	var p project.Project
 	err := row.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Slug, &p.Repo, &p.DefaultBranch, &p.Region, &p.BuildConfig,
-		&p.Port, &p.Replicas, &p.CPUMillis, &p.MemoryMiB, &p.HealthPath, &p.CreatedAt, &p.UpdatedAt)
+		&p.Port, &p.Replicas, &p.CPUMillis, &p.MemoryMiB, &p.HealthPath, &p.CreatedAt, &p.UpdatedAt,
+		&p.GitHubInstallationID, &p.GitHubRepoID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -40,11 +42,11 @@ const uniqueViolation = "23505"
 func (r *ProjectRepository) CreateProject(ctx context.Context, p *project.Project) error {
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO projects (owner_id, name, slug, repo, default_branch, region, build_config,
-			port, replicas, cpu_millis, memory_mib, health_path)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			port, replicas, cpu_millis, memory_mib, health_path, github_installation_id, github_repo_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULLIF($13::bigint, 0), NULLIF($14::bigint, 0))
 		RETURNING id, created_at, updated_at
 	`, p.OwnerID, p.Name, p.Slug, p.Repo, p.DefaultBranch, p.Region, p.BuildConfig,
-		p.Port, p.Replicas, p.CPUMillis, p.MemoryMiB, p.HealthPath,
+		p.Port, p.Replicas, p.CPUMillis, p.MemoryMiB, p.HealthPath, p.GitHubInstallationID, p.GitHubRepoID,
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 
 	var pgErr *pgconn.PgError

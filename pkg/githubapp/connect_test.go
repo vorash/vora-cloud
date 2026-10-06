@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -73,6 +74,8 @@ type fakeConnectGitHub struct {
 	tokenRequests int        // how many code exchanges were attempted
 	userCalls     []string   // bearer tokens seen on user endpoints
 	installTokens int        // installation tokens minted
+	pageSize      int        // repositories per page; 0 returns them all at once
+	repoPages     int        // pages of the installation's repositories served
 }
 
 func account(id int, login, typ string) map[string]any {
@@ -113,7 +116,22 @@ func (f *fakeConnectGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"total_count": f.totalRepos, "repositories": f.repos})
+		f.repoPages++
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		page = max(page, 1)
+		list := f.repos
+		if f.pageSize > 0 {
+			from := min((page-1)*f.pageSize, len(f.repos))
+			to := min(from+f.pageSize, len(f.repos))
+			list = f.repos[from:to]
+			if to < len(f.repos) {
+				w.Header().Set("Link", fmt.Sprintf(`<http://%s/installation/repositories?page=%d>; rel="next"`, r.Host, page+1))
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"total_count": f.totalRepos, "repositories": list})
+	case strings.HasPrefix(r.URL.Path, "/repositories/"):
+		// Any token can read a public repository by id, the installation's or not.
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 999, "full_name": "stranger/public-repo", "private": false, "default_branch": "main"})
 	default:
 		http.NotFound(w, r)
 	}
@@ -297,5 +315,73 @@ func TestAuthorizeAndInstallURLs(t *testing.T) {
 	}
 	if u.Scheme != "https" || u.Host != "github.com" || u.Path != "/apps/vora-cloud/installations/new" || u.Query().Get("state") != "abc.123" {
 		t.Errorf("install URL: %s", u)
+	}
+}
+
+func TestRepositoryIsFoundThroughTheInstallationsOwnList(t *testing.T) {
+	e := newConnectEnv(t)
+	e.links.rows[42] = Installation{ID: 42, UserID: e.alice, AccountID: 7, AccountLogin: "octo"}
+	e.gh.pageSize = 2
+	for i := 1; i <= 5; i++ {
+		e.gh.repos = append(e.gh.repos, map[string]any{"id": i, "full_name": fmt.Sprintf("octo/repo%d", i), "private": i%2 == 0, "default_branch": "trunk"})
+	}
+
+	// The last one is on the third page.
+	got, err := e.c.Repository(t.Context(), e.alice, 42, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *got != (Repository{ID: 5, FullName: "octo/repo5", Private: false, DefaultBranch: "trunk"}) {
+		t.Errorf("got %+v", got)
+	}
+	if e.gh.repoPages != 3 {
+		t.Errorf("%d pages fetched, want 3", e.gh.repoPages)
+	}
+}
+
+// Any token reads any public repository, so asking GitHub for the repository
+// by id would accept a stranger's. Only the installation's own list counts.
+func TestRepositoryRefusesOnesTheInstallationCannotRead(t *testing.T) {
+	e := newConnectEnv(t)
+	e.links.rows[42] = Installation{ID: 42, UserID: e.alice, AccountID: 7, AccountLogin: "octo"}
+	e.gh.repos = []map[string]any{{"id": 1, "full_name": "octo/web", "default_branch": "main"}}
+
+	if _, err := e.c.Repository(t.Context(), e.alice, 42, 999); err != ErrNotFound {
+		t.Errorf("a public repository outside the installation: err = %v, want ErrNotFound", err)
+	}
+	if _, err := e.c.Repository(t.Context(), e.alice, 42, 12345); err != ErrNotFound {
+		t.Errorf("a repository that does not exist: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRepositoryRefusesAnotherUsersInstallation(t *testing.T) {
+	e := newConnectEnv(t)
+	e.links.rows[43] = Installation{ID: 43, UserID: uuid.New(), AccountID: 8, AccountLogin: "other"}
+	e.gh.repos = []map[string]any{{"id": 1, "full_name": "other/secret", "private": true, "default_branch": "main"}}
+
+	before := e.gh.installTokens
+	for _, id := range []int64{43, 999} {
+		if _, err := e.c.Repository(t.Context(), e.alice, id, 1); err != ErrNotFound {
+			t.Errorf("installation %d: err = %v, want ErrNotFound", id, err)
+		}
+	}
+	if e.gh.installTokens != before || e.gh.repoPages != 0 {
+		t.Error("GitHub was asked about an installation that is not the user's")
+	}
+}
+
+// A search that never ends would hold a request open on a huge installation.
+func TestRepositorySearchIsBounded(t *testing.T) {
+	e := newConnectEnv(t)
+	e.links.rows[42] = Installation{ID: 42, UserID: e.alice, AccountID: 7, AccountLogin: "octo"}
+	e.gh.pageSize = 1
+	for i := 1; i <= maxRepoPages+10; i++ {
+		e.gh.repos = append(e.gh.repos, map[string]any{"id": i, "full_name": fmt.Sprintf("octo/r%d", i)})
+	}
+	if _, err := e.c.Repository(t.Context(), e.alice, 42, int64(maxRepoPages+5)); err != ErrNotFound {
+		t.Errorf("err = %v, want ErrNotFound past the bound", err)
+	}
+	if e.gh.repoPages != maxRepoPages {
+		t.Errorf("%d pages fetched, want the bound of %d", e.gh.repoPages, maxRepoPages)
 	}
 }

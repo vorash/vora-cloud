@@ -40,6 +40,12 @@ func (f *fakeAccounts) RegisterUser(_ context.Context, name, email, _ string) (*
 
 func projectsAPI(t *testing.T) *echo.Echo {
 	t.Helper()
+	return projectsAPIWith(t, projecttest.New())
+}
+
+// projectsAPIWith is projectsAPI on a store the test keeps hold of.
+func projectsAPIWith(t *testing.T, store *projecttest.MemStore) *echo.Echo {
+	t.Helper()
 	reg, err := deploy.NewRegistry(map[string]deploy.Deployer{"eu": k3s.New(fake.NewClientset(), k3s.Options{})})
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +57,7 @@ func projectsAPI(t *testing.T) *echo.Echo {
 	s := &Server{
 		accounts:   &fakeAccounts{},
 		appService: api.NewApplicationService(reg),
-		projects:   project.NewService(projecttest.New(), reg, box, "cloud.example.com"),
+		projects:   project.NewService(store, reg, box, "cloud.example.com"),
 	}
 	e := echo.New()
 	v1 := e.Group("/api/v1", func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -303,5 +309,40 @@ func TestDeploymentsListPagesThroughTheNextCursorHeader(t *testing.T) {
 	}
 	if code, _, _ := list(bob, "?before="+next); code != http.StatusNotFound {
 		t.Errorf("another user with alice's cursor: %d, want 404", code)
+	}
+}
+
+// A project is tied to a GitHub repository by two ids that only the dashboard
+// may set, after checking them against the user's own installation. If the API
+// ever accepted them, a user could point a project at someone else's
+// repository and have that repository's pushes deploy it. The request type has
+// no such fields; this keeps it that way, and shows that the free-text repo
+// label, which the API does take, does not connect anything.
+func TestTheAPICannotLinkAProjectToAGitHubRepository(t *testing.T) {
+	store := projecttest.New()
+	e := projectsAPIWith(t, store)
+
+	code, body := call(t, e, alice, "POST", "/api/v1/projects",
+		`{"name":"web","slug":"web","region":"eu","repo":"someone/elses-repo",
+		  "github_installation_id":7,"github_repo_id":9,"GitHubInstallationID":7,"GitHubRepoID":9}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %v", code, body)
+	}
+	owner, err := uuid.Parse(alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ListProjects(context.Background(), owner)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("stored projects: %v, %v", got, err)
+	}
+	if got[0].GitHubInstallationID != 0 || got[0].GitHubRepoID != 0 {
+		t.Errorf("the API linked a repository: %+v", got[0])
+	}
+	if got[0].Repo != "someone/elses-repo" {
+		t.Errorf("the repo label was not kept: %q", got[0].Repo)
+	}
+	if _, ok := body["github_repo_id"]; ok {
+		t.Error("the response exposes the repository id")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/vorash/vora-cloud/pkg/auth"
+	"github.com/vorash/vora-cloud/pkg/githubapp"
 	"github.com/vorash/vora-cloud/pkg/project"
 )
 
@@ -142,20 +144,55 @@ type newProjectData struct {
 	Region     string
 	// SlugTaken marks the slug field invalid after ErrSlugTaken.
 	SlugTaken bool
+	// Repo is the GitHub repository the project is created from; nil for a plain
+	// project. GitHub says whether the GitHub page is offered at all.
+	Repo   *repoChoice
+	GitHub bool
 }
 
 func (d *Dashboard) newProjectForm(c echo.Context) error {
-	return d.render(c, http.StatusOK, "project_new", page{Title: "New project", Data: newProjectData{Regions: d.cfg.Regions}})
+	data := newProjectData{Regions: d.cfg.Regions, GitHub: d.cfg.GitHub != nil}
+	installation, repo := c.QueryParam("installation"), c.QueryParam("repo")
+	if d.cfg.GitHub == nil || (installation == "" && repo == "") {
+		return d.render(c, http.StatusOK, "project_new", page{Title: "New project", Data: data})
+	}
+	choice, err := d.repoFor(c, installation, repo)
+	switch {
+	case errors.Is(err, githubapp.ErrNotFound):
+		return d.notFound(c)
+	case err != nil:
+		data.Repo = choice
+		return d.render(c, http.StatusBadGateway, "project_new", page{Title: "New project", Error: "GitHub did not answer. Try again in a moment.", Data: data})
+	}
+	data.Repo, data.Name, data.Slug = choice, path.Base(choice.FullName), slugFor(path.Base(choice.FullName))
+	return d.render(c, http.StatusOK, "project_new", page{Title: "New project", Data: data})
 }
 
 func (d *Dashboard) createProject(c echo.Context) error {
 	form := newProjectData{
 		Regions: d.cfg.Regions, Name: strings.TrimSpace(c.FormValue("name")),
 		Slug: strings.TrimSpace(c.FormValue("slug")), Region: c.FormValue("region"),
+		GitHub: d.cfg.GitHub != nil,
 	}
-	p, err := d.cfg.Projects.CreateProject(c.Request().Context(), sessionOf(c).UserID, project.CreateInput{
-		Name: form.Name, Slug: form.Slug, Region: form.Region,
-	})
+	in := project.CreateInput{Name: form.Name, Slug: form.Slug, Region: form.Region}
+
+	// Only the two ids come from the form. The repository is checked again, and
+	// its name and branch are what GitHub says, never what was posted.
+	if installation, repo := c.FormValue("installation"), c.FormValue("repo"); d.cfg.GitHub != nil && (installation != "" || repo != "") {
+		choice, err := d.repoFor(c, installation, repo)
+		switch {
+		case errors.Is(err, githubapp.ErrNotFound):
+			return d.notFound(c)
+		case err != nil:
+			form.Repo = choice
+			return d.render(c, http.StatusBadGateway, "project_new", page{Title: "New project", Error: "GitHub did not answer. Try again in a moment.", Data: form})
+		}
+		form.Repo = choice
+		in.Repo, in.DefaultBranch = choice.FullName, choice.DefaultBranch
+		in.GitHubInstallationID, in.GitHubRepoID = choice.InstallationID, choice.ID
+	}
+
+	p, err := d.cfg.Projects.CreateProject(c.Request().Context(), sessionOf(c).UserID, in)
 	switch {
 	case errors.Is(err, project.ErrInvalid), errors.Is(err, project.ErrSlugTaken):
 		form.SlugTaken = errors.Is(err, project.ErrSlugTaken)

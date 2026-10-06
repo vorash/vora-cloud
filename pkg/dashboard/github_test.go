@@ -53,6 +53,27 @@ func (f *fakeGitHub) Installations(_ context.Context, user uuid.UUID) ([]githuba
 	return f.installs[user], nil
 }
 
+// Repository answers for the installations and repositories in repos, as the
+// real one does for the user's own installation only.
+func (f *fakeGitHub) Repository(_ context.Context, user uuid.UUID, installationID, repoID int64) (*githubapp.Repository, error) {
+	if err := f.repoErr[installationID]; err != nil {
+		return nil, err
+	}
+	for _, in := range f.installs[user] {
+		if in.ID != installationID {
+			continue
+		}
+		if f.repos[in.ID] != nil {
+			for _, r := range f.repos[in.ID].List {
+				if r.ID == repoID {
+					return &r, nil
+				}
+			}
+		}
+	}
+	return nil, githubapp.ErrNotFound
+}
+
 func (f *fakeGitHub) Repositories(_ context.Context, _ uuid.UUID, id int64) (*githubapp.Repositories, error) {
 	if err := f.repoErr[id]; err != nil {
 		return nil, err

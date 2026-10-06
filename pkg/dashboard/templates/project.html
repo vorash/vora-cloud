@@ -45,6 +45,8 @@
         <div><dt>Status</dt><dd{{with $latest}} data-deployment="{{.ID}}"{{end}}>{{with $latest}}{{template "status" .Status}}<span class="sub">Started {{template "time" .CreatedAt}}</span>{{else}}<span class="cell-none">No deployments yet</span>{{end}}</dd></div>
         <div><dt>Slug</dt><dd class="mono">{{.Data.Project.Slug}}</dd></div>
         <div><dt>Region</dt><dd class="mono">{{.Data.Project.Region}}</dd></div>
+{{if .Data.Project.GitHubRepoID}}        <div><dt>Repository</dt><dd class="mono"><a href="https://github.com/{{.Data.Project.Repo}}" rel="noopener noreferrer">{{.Data.Project.Repo}}</a><span class="sub">{{.Data.Project.DefaultBranch}}</span></dd></div>
+{{end}}
         <div><dt>Latest image</dt><dd class="mono">{{with $latest}}{{.Image}}{{else}}<span class="cell-none">None</span>{{end}}</dd></div>
       </dl>
     </div>
