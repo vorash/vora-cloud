@@ -27,8 +27,7 @@ type liveDeployment struct {
 
 // events streams the states of a project's newest deployments as server-sent
 // events (ADR 004). It asks project.Service like the page does, so another
-// user's project is a 404 here too, and it checks the session on every poll, so
-// signing out ends the stream. It sends a "status" event on connect and when
+// user's project is a 404 here too. It sends a "status" event on connect and when
 // something changes, and "done" once every deployment is final, which tells the
 // page to close rather than let the browser reconnect.
 func (d *Dashboard) events(c echo.Context) error {
@@ -36,6 +35,26 @@ func (d *Dashboard) events(c echo.Context) error {
 	if err != nil {
 		return d.notFound(c)
 	}
+	var last string
+	return d.serveStream(c, "status", "events "+id.String(), func() (string, bool, error) {
+		data, final, err := d.liveState(c, id)
+		if err != nil || data == last {
+			return "", final, err
+		}
+		last = data
+		return data, final, nil
+	})
+}
+
+// serveStream runs one server-sent event stream for the signed-in session. read
+// is called on connect and then every poll; it returns the data of the next
+// event, or "" when nothing changed, and whether the stream is over. The first
+// call comes before any header is written, so a project or deployment that is not
+// the caller's gets the normal 404. The session is checked on every poll, so
+// signing out ends the stream, and the stream counts against the session's limit.
+// A "done" event is sent when read says it is over, which tells the page to close
+// rather than let the browser reconnect.
+func (d *Dashboard) serveStream(c echo.Context, event, what string, read func() (data string, final bool, err error)) error {
 	ctx := c.Request().Context()
 	var cookieValue string
 	if cookie, err := c.Cookie(cookieName); err == nil {
@@ -43,9 +62,7 @@ func (d *Dashboard) events(c echo.Context) error {
 	}
 	hash := hashToken(cookieValue)
 
-	// The first read happens before any header is written, so a project that is
-	// not the caller's gets the normal 404.
-	last, final, err := d.liveState(c, id)
+	first, final, err := read()
 	switch {
 	case errors.Is(err, project.ErrNotFound):
 		return d.notFound(c)
@@ -64,7 +81,7 @@ func (d *Dashboard) events(c echo.Context) error {
 	rc := http.NewResponseController(c.Response())
 	if err := rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout)); err != nil {
 		// Without it a client that stops reading holds the stream until the age limit.
-		log.Printf("dashboard events: no write deadline on this connection: %v", err)
+		log.Printf("dashboard %s: no write deadline on this connection: %v", what, err)
 	}
 	send := func(event, data string) error {
 		_ = rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
@@ -74,7 +91,7 @@ func (d *Dashboard) events(c echo.Context) error {
 		return rc.Flush()
 	}
 
-	if send("status", last) != nil {
+	if first != "" && send(event, first) != nil {
 		return nil
 	}
 	poll, ping, limit := time.NewTicker(d.pollEvery), time.NewTicker(d.pingEvery), time.NewTimer(d.maxStreamAge)
@@ -98,19 +115,16 @@ func (d *Dashboard) events(c echo.Context) error {
 			if sess, err := d.cfg.Sessions.Get(ctx, hash); err != nil || sess == nil {
 				return nil
 			}
-			now, nowFinal, err := d.liveState(c, id)
+			data, nowFinal, err := read()
 			if err != nil {
 				if !errors.Is(err, project.ErrNotFound) && ctx.Err() == nil {
-					log.Printf("dashboard events %s: %v", id, err)
+					log.Printf("dashboard %s: %v", what, err)
 				}
 				return nil
 			}
 			final = nowFinal
-			if now != last {
-				last = now
-				if send("status", now) != nil {
-					return nil
-				}
+			if data != "" && send(event, data) != nil {
+				return nil
 			}
 		}
 	}

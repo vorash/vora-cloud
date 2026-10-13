@@ -88,7 +88,12 @@ first.
    resource limits on the pod. A newer push to a project cancels its older queued
    or running build, as it already supersedes a queued deployment.
 7. **Logs** are read from the Job's pod while it runs, stored with the build, and
-   streamed to the dashboard over the event stream that already exists.
+   streamed to the dashboard over server-sent events. The stream that exists sends
+   a project's statuses; the log has an event stream of its own per deployment
+   (`.../deployments/:dep/log/stream`), because a page about one build should not
+   receive every deployment's text. It reads the stored log through the project
+   service, never the pod, so the owner check and the removal of tokens are the
+   ones the page has, and it counts against the same per-session limit.
 8. **Cache** is exported to the registry (`--export-cache type=registry`) and
    imported by the next build, so a Job per build is not a cold build.
 

@@ -80,6 +80,44 @@
     source.onerror = function () { if (note && source.readyState === EventSource.CLOSED) note.textContent = idle; };
   }
 
+  // Build log: while the build runs the server sends what it printed. The text
+  // is added as a text node, never as HTML. The first event holds the whole log.
+  var logEl = document.querySelector("[data-log-stream]");
+  if (logEl && window.EventSource) {
+    var logNote = document.querySelector("[data-live-note]");
+    var logDone = logNote && "This build has finished.";
+    var logEmpty = logEl.hasAttribute("data-empty"); // the page shows a placeholder until text arrives
+    var showLog = function (f) {
+      if (f.text === "") return;
+      var atEnd = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 24;
+      if (f.reset || logEmpty) logEl.textContent = "";
+      logEl.appendChild(document.createTextNode(f.text));
+      logEmpty = false;
+      if (atEnd) logEl.scrollTop = logEl.scrollHeight;
+    };
+    var showStatus = function (f) {
+      var box = document.querySelector("[data-log-status]"), chip = box && box.querySelector(".status");
+      if (!chip || STATUSES.indexOf(f.status) < 0) return;
+      chip.className = "status status-" + f.status;
+      chip.lastChild.nodeValue = f.status;
+      var why = box.querySelector("[data-log-error]");
+      if (f.error && !why) {
+        why = box.appendChild(document.createElement("span"));
+        why.className = "sub";
+        why.setAttribute("data-log-error", "");
+      }
+      if (why) why.textContent = f.error || "";
+    };
+    var logSource = new EventSource(logEl.dataset.logStream);
+    logSource.addEventListener("log", function (e) {
+      var f = JSON.parse(e.data);
+      showLog(f);
+      showStatus(f);
+    });
+    // The build can print no more: close, or the browser would reconnect.
+    logSource.addEventListener("done", function () { logSource.close(); if (logNote) logNote.textContent = logDone; });
+  }
+
   // Copy the project's address.
   var address = document.querySelector("a[data-copy]");
   if (address && navigator.clipboard) {
