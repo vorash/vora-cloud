@@ -365,7 +365,7 @@ func TestTheBuildLogIsServedAsPlainTextToItsOwnerOnly(t *testing.T) {
 	if err := v.projects.StartBuild(t.Context(), dep); err != nil {
 		t.Fatal(err)
 	}
-	if page := v.send("GET", "/projects/"+p.ID.String(), nil, alice, nil).body; !strings.Contains(page, `href="`+path+`"`) {
-		t.Errorf("the project page has no link to the build log")
+	if page := v.send("GET", "/projects/"+p.ID.String(), nil, alice, nil).body; !strings.Contains(page, `href="/projects/`+p.ID.String()+`/deployments/`+dep.String()+`"`) {
+		t.Errorf("the project page has no link to the build log page")
 	}
 }
