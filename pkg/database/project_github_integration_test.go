@@ -171,3 +171,73 @@ func TestBuildLogAndImageOfADeployment(t *testing.T) {
 		t.Errorf("BuildLog on an unknown deployment: %v", err)
 	}
 }
+
+// Retention reads every image the registry may still hold, and marks an image
+// gone for the one project that ran it.
+func TestImagesOfDeploymentsAreListedAndMarkedPruned(t *testing.T) {
+	repo, owner := newTestRepo(t)
+	ctx := context.Background()
+	mk := func(slug string) *project.Project {
+		p := newProject(owner, slug)
+		if err := repo.CreateProject(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	run := func(p *project.Project, image string, status project.Status) *project.Deployment {
+		d := &project.Deployment{ProjectID: p.ID, Image: image, Status: status, Region: "eu"}
+		if err := repo.CreateDeployment(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	a, b := mk("img-a"), mk("img-b")
+	same := "localhost:5000/img-a/img-a@sha256:" + strings.Repeat("1", 64)
+	old := run(a, same, project.StatusReady)
+	run(a, "", project.StatusQueued) // no image: not listed
+	again := run(a, same, project.StatusReady)
+	newest := run(a, "localhost:5000/img-a/img-a@sha256:"+strings.Repeat("2", 64), project.StatusDeploying)
+	other := run(b, same, project.StatusReady) // the same text in another project
+
+	rows, err := repo.ListImages(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mine []project.ImageUse
+	for _, r := range rows {
+		if r.ProjectID == a.ID {
+			mine = append(mine, r)
+		}
+	}
+	if len(mine) != 3 || mine[0].DeploymentID != newest.ID || mine[1].DeploymentID != again.ID || mine[2].DeploymentID != old.ID {
+		t.Fatalf("project a's images, newest first: %+v", mine)
+	}
+	if mine[0].Slug != "img-a" || mine[0].Status != project.StatusDeploying || mine[0].Image != newest.Image {
+		t.Errorf("row %+v", mine[0])
+	}
+
+	if err := repo.MarkImagePruned(ctx, a.ID, same); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []*project.Deployment{old, again} {
+		if got, _ := repo.GetDeployment(ctx, d.ID); got.ImagePrunedAt == nil {
+			t.Errorf("deployment %s still has its image", d.ID)
+		}
+	}
+	if got, _ := repo.GetDeployment(ctx, other.ID); got.ImagePrunedAt != nil {
+		t.Error("another project's deployment of the same image text was marked")
+	}
+	if got, _ := repo.GetDeployment(ctx, newest.ID); got.ImagePrunedAt != nil {
+		t.Error("a different image was marked")
+	}
+	rows, _ = repo.ListImages(ctx)
+	for _, r := range rows {
+		if r.ProjectID == a.ID && r.Image == same {
+			t.Errorf("a marked image is still listed: %+v", r)
+		}
+	}
+	// Marking again is harmless.
+	if err := repo.MarkImagePruned(ctx, a.ID, same); err != nil {
+		t.Error(err)
+	}
+}

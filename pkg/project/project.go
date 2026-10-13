@@ -102,6 +102,9 @@ type Deployment struct {
 	StartedAt  *time.Time
 	FinishedAt *time.Time
 	UpdatedAt  time.Time
+	// ImagePrunedAt is when the image was removed from the registry to save space;
+	// the deployment can no longer be rolled back to.
+	ImagePrunedAt *time.Time
 }
 
 // Summary is a project with its newest deployment, nil if it has none.
@@ -139,6 +142,13 @@ type Store interface {
 	// log is not part of Deployment, so listing deployments never carries it.
 	BuildLog(ctx context.Context, id uuid.UUID) (string, error)
 	SetBuildLog(ctx context.Context, id uuid.UUID, log string) error
+	// ListImages returns every deployment that has an image the registry may still
+	// hold (not pruned), with the project's slug, ordered by project and then
+	// newest first.
+	ListImages(ctx context.Context) ([]ImageUse, error)
+	// MarkImagePruned records that the image is gone from the registry, on every
+	// deployment of the project that ran it.
+	MarkImagePruned(ctx context.Context, project uuid.UUID, image string) error
 	// Move changes the status only if it is still "from" (ErrConflict
 	// otherwise), and records the error text and finish time.
 	Move(ctx context.Context, id uuid.UUID, from, to Status, errText string) error

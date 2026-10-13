@@ -104,6 +104,9 @@ type Runner interface {
 type Registry interface {
 	// Digest returns the digest ("sha256:...") of repo:tag, or ErrNoImage.
 	Digest(ctx context.Context, repo, tag string) (string, error)
+	// Delete removes the manifest repo@digest, and with it the tags that point at
+	// it. One that is already gone is not an error.
+	Delete(ctx context.Context, repo, digest string) error
 }
 
 // ErrNoImage means the registry has no such image.
@@ -122,6 +125,7 @@ type Deployments interface {
 	FinishBuild(ctx context.Context, id uuid.UUID, image string) error
 	FailBuild(ctx context.Context, id uuid.UUID, reason string) error
 	RecordBuildLog(ctx context.Context, id uuid.UUID, log string) error
+	PruneImages(ctx context.Context, keep int, remove func(ctx context.Context, slug, image string) error) (int, error)
 }
 
 var (

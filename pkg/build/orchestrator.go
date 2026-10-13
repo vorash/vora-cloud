@@ -21,6 +21,11 @@ type Config struct {
 	Deadline time.Duration
 	// MaxLog is how much of a build's log is kept.
 	MaxLog int
+	// Keep is how many deployments' images a project keeps in the registry, besides
+	// the one it serves and any still in progress; PruneEvery is how often the
+	// rest are removed.
+	Keep       int
+	PruneEvery time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -29,6 +34,12 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxLog == 0 {
 		c.MaxLog = 256 << 10
+	}
+	if c.Keep == 0 {
+		c.Keep = 5
+	}
+	if c.PruneEvery == 0 {
+		c.PruneEvery = 10 * time.Minute
 	}
 	return c
 }
@@ -45,10 +56,14 @@ type Orchestrator struct {
 	now      func() time.Time
 	logged   map[string]string // the log last stored for a build, to skip an unchanged one
 	started  map[string]string // the builds this process started, by id, with their region
+	// cacheWas is the digest the project's build cache had when a build started, so
+	// the one it replaced can be removed when the build ends.
+	cacheWas  map[string]string
+	lastPrune time.Time
 }
 
 func NewOrchestrator(deps Deployments, runners map[string]Runner, tokens Tokens, registry Registry, cfg Config) *Orchestrator {
-	return &Orchestrator{deps: deps, runners: runners, tokens: tokens, registry: registry, cfg: cfg.withDefaults(), now: time.Now, logged: map[string]string{}, started: map[string]string{}}
+	return &Orchestrator{deps: deps, runners: runners, tokens: tokens, registry: registry, cfg: cfg.withDefaults(), now: time.Now, logged: map[string]string{}, started: map[string]string{}, cacheWas: map[string]string{}}
 }
 
 // Run sweeps what a restart left behind, then settles builds every interval until
@@ -59,6 +74,7 @@ func (o *Orchestrator) Run(ctx context.Context, interval time.Duration) {
 	defer t.Stop()
 	for {
 		o.Tick(ctx)
+		o.maybePrune(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -176,7 +192,10 @@ func (o *Orchestrator) start(ctx context.Context, b project.Build) {
 	}
 	path := repoPath(b.Project.Slug)
 	// The cache is imported only if there is one: the first build of a project has none.
-	_, cacheErr := o.registry.Digest(ctx, path, cacheTag)
+	cacheDigest, cacheErr := o.registry.Digest(ctx, path, cacheTag)
+	if cacheErr == nil {
+		o.cacheWas[id] = cacheDigest
+	}
 	spec := Spec{
 		ID: id, Repo: b.Project.Repo, CommitSHA: b.Deployment.CommitSHA,
 		Context: settings.Context, Dockerfile: settings.Dockerfile,
@@ -270,6 +289,7 @@ func (o *Orchestrator) finish(ctx context.Context, b project.Build, r Runner) bo
 		log.Printf("build %s: deploying it: %v", id, err)
 		return true
 	}
+	o.dropReplacedCache(ctx, path, id)
 	o.cleanup(ctx, r, id)
 	log.Printf("build %s: deployed %s@%.19s", id, path, digest)
 	return false
@@ -317,6 +337,7 @@ func (o *Orchestrator) cleanup(ctx context.Context, r Runner, id string) {
 	}
 	delete(o.logged, id)
 	delete(o.started, id)
+	delete(o.cacheWas, id)
 }
 
 // fail ends a build with a reason. ErrConflict means something else got there
@@ -357,4 +378,57 @@ func failureReason(res Result, text string) string {
 		reason += ": " + strings.Join(tail, " | ")
 	}
 	return reason
+}
+
+// dropReplacedCache removes the build cache manifest that a build's export
+// replaced. Each export moves the tag to a new manifest and leaves the old one
+// untagged, where the registry's garbage collection keeps it and its layers; and
+// the images' own untagged manifests cannot be told from it, so it is removed here
+// by its digest. A build that did not move the tag leaves it alone.
+func (o *Orchestrator) dropReplacedCache(ctx context.Context, path, id string) {
+	before, ok := o.cacheWas[id]
+	if !ok {
+		return
+	}
+	after, err := o.registry.Digest(ctx, path, cacheTag)
+	if err != nil || after == before {
+		return
+	}
+	if err := o.registry.Delete(ctx, path, before); err != nil {
+		log.Printf("build %s: removing the cache it replaced: %v", id, err)
+	}
+}
+
+// maybePrune prunes when it is time.
+func (o *Orchestrator) maybePrune(ctx context.Context) {
+	if o.now().Sub(o.lastPrune) < o.cfg.PruneEvery {
+		return
+	}
+	o.lastPrune = o.now()
+	o.Prune(ctx)
+}
+
+// Prune removes the images that retention lets go of (project.Service.PruneImages
+// decides which).
+func (o *Orchestrator) Prune(ctx context.Context) {
+	n, err := o.deps.PruneImages(ctx, o.cfg.Keep, o.removeImage)
+	if err != nil {
+		log.Printf("build: pruning images: %v", err)
+	}
+	if n > 0 {
+		log.Printf("build: removed %d old image(s) from the registry", n)
+	}
+}
+
+// removeImage deletes an image from the registry if a build of this project made
+// it: <PullHost>/<slug>/<slug>@sha256:..., and nothing else. A deployment's image
+// is whatever its user typed, so one can name another project's image, a tag, or
+// an image from elsewhere; none of those is deleted.
+func (o *Orchestrator) removeImage(ctx context.Context, slug, image string) error {
+	prefix := o.cfg.PullHost + "/" + repoPath(slug) + "@"
+	digest, ok := strings.CutPrefix(image, prefix)
+	if !ok || !digestRe.MatchString(digest) {
+		return project.ErrImageNotManaged
+	}
+	return o.registry.Delete(ctx, repoPath(slug), digest)
 }

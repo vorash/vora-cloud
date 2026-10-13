@@ -108,6 +108,16 @@ func (f *fakeTokens) RepoToken(_ context.Context, inst, repo int64) (string, err
 type fakeRegistry struct {
 	digests map[string]string // "repo:tag"
 	err     error
+	deleted []string // "repo@digest", in order
+	delErr  error
+}
+
+func (f *fakeRegistry) Delete(_ context.Context, repo, digest string) error {
+	if f.delErr != nil {
+		return f.delErr
+	}
+	f.deleted = append(f.deleted, repo+"@"+digest)
+	return nil
 }
 
 func (f *fakeRegistry) Digest(_ context.Context, repo, tag string) (string, error) {
