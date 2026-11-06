@@ -2,7 +2,7 @@
 
 A Go service for deploying containerized applications to Kubernetes (k3s): connect GitHub, build, deploy. It exposes a gRPC API, a REST API with Swagger UI, and a command-line client.
 
-> **Status:** under construction. Deploying an image works; GitHub, builds, projects and the dashboard are still on the roadmap in [#2](https://github.com/vorash/vora-cloud/issues/2). Design decisions are in [docs/adr](docs/adr).
+> **Status:** under construction. Deploying an image works. GitHub, builds, projects and the dashboard are still on the roadmap in [#2](https://github.com/vorash/vora-cloud/issues/2). Design decisions are in [docs/adr](docs/adr).
 
 ## How it works
 
@@ -43,23 +43,23 @@ The controller reads its configuration from the environment:
 
 | Variable | Meaning |
 |----------|---------|
-| `REGIONS` | Required. `<region>=<kubeconfig path>`, comma separated, e.g. `eu=/etc/vora-cloud/eu.kubeconfig`. The server refuses to start if it is empty or malformed |
+| `REGIONS` | Required. `<region>=<kubeconfig path>`, comma separated, for example `eu=/etc/vora-cloud/eu.kubeconfig`. The server refuses to start if it is empty or malformed |
 | `INGRESS_CLASS` | Ingress class for apps (default `traefik`) |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_SECRET` | Required, at least 32 characters |
-| `DB_MAX_CONNS`, `DB_MIN_CONNS` | Size of the service's connection pool (default `25` and `5`). Behind Supabase's session pooler each connection holds a backend connection, and the pooler's pool size (Supabase dashboard, Database settings) is a plan limit: keep `DB_MAX_CONNS` below it (migrations use the direct connection and do not count against it), or connects fail with "max clients reached" |
-| `SECRETS_KEY` | Required. Base64 of 32 random bytes (`openssl rand -base64 32`); encrypts project environment variables. Losing it makes stored variables unreadable |
-| `APPS_DOMAIN` | Base domain of app hosts: a project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. Empty leaves apps unexposed |
-| `PUBLIC_URL` | The site's origin, e.g. `https://cloud.vora.sh`. The dashboard accepts form posts only from it; set it whenever a proxy sits in front, or sign-in is refused |
-| `GITHUB_WEBHOOK_SECRET` | The GitHub App's webhook secret. Unset, `POST /api/v1/webhooks/github` is not served. Set, it accepts only requests signed with this secret (`X-Hub-Signature-256`) and handles each `X-GitHub-Delivery` once |
-| `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY_FILE` | The GitHub App's URL name, OAuth client ID and secret, and the path to its private key (`.pem`). All four or none: with some missing the server refuses to start; with none, the dashboard has no GitHub page. The callback URL registered with the App must be `PUBLIC_URL` + `/github/callback` |
-| `BUILD_REGISTRY_PUSH`, `BUILD_REGISTRY_PULL`, `BUILD_REGISTRY_API`, `BUILD_BUILDKIT_IMAGE` | Turn a push into an image (ADR 006). All four or none, and they need the GitHub App. The registry as a build's pod reaches it (`registry.registry.svc.cluster.local:5000`), as the node pulls from it (`localhost:5000`), its HTTP API as this service reaches it (`http://127.0.0.1:5000`), and the rootless BuildKit image **pinned by digest** (`moby/buildkit:v0.33.1-rootless@sha256:...`). With none set, a push queues a deployment that nothing builds. The namespace and network policy they run in come from `vora-cloud-ansible`'s `builder` role |
+| `DB_MAX_CONNS`, `DB_MIN_CONNS` | Size of the service's connection pool (default `25` and `5`). Behind Supabase's session pooler, each connection holds a backend connection, and the pooler's pool size (Supabase dashboard, Database settings) is a plan limit. Keep `DB_MAX_CONNS` below that limit, or connections fail with "max clients reached". Migrations use the direct connection and do not count against it |
+| `SECRETS_KEY` | Required. Base64 of 32 random bytes (`openssl rand -base64 32`). It encrypts project environment variables. Losing it makes stored variables unreadable |
+| `APPS_DOMAIN` | Base domain of app hosts. A project gets `<slug>.<region>.<APPS_DOMAIN>` over HTTPS. If it is empty, apps are not exposed |
+| `PUBLIC_URL` | The site's origin, for example `https://cloud.vora.sh`. The dashboard accepts form posts only from this origin. Set it whenever a proxy sits in front, or sign-in is refused |
+| `GITHUB_WEBHOOK_SECRET` | The GitHub App's webhook secret. If it is unset, `POST /api/v1/webhooks/github` is not served. If it is set, the route accepts only requests signed with this secret (`X-Hub-Signature-256`) and handles each `X-GitHub-Delivery` once |
+| `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY_FILE` | The GitHub App's URL name, OAuth client ID and secret, and the path to its private key (`.pem`). Set all four or none. If some are missing, the server refuses to start. If none are set, the dashboard has no GitHub page. The callback URL registered with the App must be `PUBLIC_URL` + `/github/callback` |
+| `BUILD_REGISTRY_PUSH`, `BUILD_REGISTRY_PULL`, `BUILD_REGISTRY_API`, `BUILD_BUILDKIT_IMAGE` | These turn a push into an image (ADR 006). Set all four or none, and they also need the GitHub App. In order, they name the registry address that a build's pod uses (`registry.registry.svc.cluster.local:5000`), the registry address that the node pulls from (`localhost:5000`), the registry's HTTP API address that this service uses (`http://127.0.0.1:5000`), and the rootless BuildKit image **pinned by digest** (`moby/buildkit:v0.33.1-rootless@sha256:...`). If none are set, a push queues a deployment that nothing builds. The namespace and network policy that builds run in come from `vora-cloud-ansible`'s `builder` role |
 | `BUILD_NAMESPACE` | The namespace builds run in (default `vora-builds`) |
-| `ALLOW_REGISTRATION` | `true` lets anyone call `POST /auth/register`. Off by default: an admin API key creates users with `POST /admin/users` |
+| `ALLOW_REGISTRATION` | `true` lets anyone call `POST /auth/register`. It is off by default, so an admin API key creates users with `POST /admin/users` |
 | `BOOTSTRAP_KEY` | Optional. Creates an admin API key on first run |
 | `GRPC_PORT`, `HTTP_PORT` | Default `50051` and `5000` |
 
-The service reaches the database only with its own Postgres role; it never uses Supabase's API keys, and the dashboard will call this API, not Supabase's. So the project's **Data API (PostgREST) can be turned off** in the Supabase dashboard; with it off, a table that lacks row level security is no longer readable by `anon` through the API, which is a second layer behind migration 003 and the migration test.
+The service reaches the database only with its own Postgres role. It never uses Supabase's API keys, and the dashboard will call this API, not Supabase's. So the project's **Data API (PostgREST) can be turned off** in the Supabase dashboard. With it off, `anon` can no longer read, through the API, a table that lacks row level security. That is a second layer behind migration 003 and the migration test.
 
 With Supabase there are two endpoints, and each has one job. The running service uses the **session pooler** (`aws-1-eu-west-1.pooler.supabase.com:5432`, user `postgres.<ref>`, `sslmode=require`), which is reachable over IPv4. Migrations use the **direct connection** (`db.<ref>.supabase.co`), which is IPv6 only, so run `make migrate-up` from a machine that has IPv6, not from the staging guest.
 
@@ -83,13 +83,13 @@ export VORA_API_KEY=<admin key>   # deploy, delete and status need it
 
 ### Deployment ids
 
-A deployment id is `<region>/<name>`, for example `eu/whoami`. Deploy returns it, and status and delete take it, because those requests carry no region. Ids without a region are rejected. In REST paths send the slash as `%2F`: `/api/v1/applications/eu%2Fwhoami/status`.
+A deployment id is `<region>/<name>`, for example `eu/whoami`. Deploy returns it, and status and delete take it, because those requests carry no region. The service rejects ids without a region. In REST paths, send the slash as `%2F`: `/api/v1/applications/eu%2Fwhoami/status`.
 
 ### gRPC
 
-Every method except `HealthCheck` needs credentials in the call metadata: `authorization: Bearer <jwt>` or `x-api-key: <key>`, the same as REST. `ControlPlane` methods (`DeployApplication`, `DeleteApplication`, `GetApplicationStatus`) need an admin API key, one that belongs to no user; the CLI reads it from `VORA_API_KEY`. The `Projects` service ([`api/proto/projects.proto`](api/proto/projects.proto): create, list, get and delete projects; list and get deployments; `DeployImage`, `Redeploy`, `Rollback`) needs a user. A method that is not listed in `pkg/api/authn.go` is refused. Environment variables are REST only for now.
+Every method except `HealthCheck` needs credentials in the call metadata: `authorization: Bearer <jwt>` or `x-api-key: <key>`, the same as REST. `ControlPlane` methods (`DeployApplication`, `DeleteApplication`, `GetApplicationStatus`) need an admin API key, one that belongs to no user. The CLI reads it from `VORA_API_KEY`. The `Projects` service ([`api/proto/projects.proto`](api/proto/projects.proto): create, list, get and delete projects; list and get deployments; `DeployImage`, `Redeploy`, `Rollback`) needs a user. A method that is not listed in `pkg/api/authn.go` is refused. Environment variables are REST only for now.
 
-The service is `ControlPlane` in [`api/proto/controlplane.proto`](api/proto/controlplane.proto) (`DeployApplication`, `DeleteApplication`, `GetApplicationStatus`, `HealthCheck`; `GetApplicationLogs` is not implemented yet).
+The service is `ControlPlane` in [`api/proto/controlplane.proto`](api/proto/controlplane.proto) (`DeployApplication`, `DeleteApplication`, `GetApplicationStatus`, `HealthCheck`). `GetApplicationLogs` is not implemented yet.
 
 `DeployRequest` fields:
 
@@ -99,10 +99,10 @@ The service is `ControlPlane` in [`api/proto/controlplane.proto`](api/proto/cont
 | `image` | Required |
 | `replicas` | `0` pauses the app |
 | `cpu`, `memory` | Cores and MB, both required. They are the request and the limit |
-| `region` | Required. An empty or unknown region fails; there is no default |
+| `region` | Required. An empty or unknown region fails. There is no default |
 | `labels` | Become the app's environment variables |
 | `traefik` | See below |
-| `network_mode` | Ignored: pods use the cluster network |
+| `network_mode` | Ignored, because pods use the cluster network |
 
 The container port is fixed at 80 for now.
 
@@ -112,7 +112,7 @@ Supported `TraefikConfig` fields: `enable`, `host`, `enable_ssl` and `health_che
 
 ### Dashboard
 
-The dashboard is served by the same binary at `/` (see [ADR 004](docs/adr/004-dashboard-and-signup.md)): sign in, list and create projects, and on a project's page deploy an image, redeploy, and see its deployments. Set `PUBLIC_URL`. Users cannot sign themselves up: create one with an admin key, then have them sign in.
+The same binary serves the dashboard at `/` (see [ADR 004](docs/adr/004-dashboard-and-signup.md)). You can sign in, list and create projects, and, on a project's page, deploy an image, redeploy, and see its deployments. Set `PUBLIC_URL`. Users cannot sign themselves up. Create a user with an admin key, then have them sign in.
 
 ```bash
 curl -X POST "$URL/api/v1/admin/users" -H "X-API-Key: $ADMIN_KEY" -H 'Content-Type: application/json' \
@@ -121,19 +121,19 @@ curl -X POST "$URL/api/v1/admin/users" -H "X-API-Key: $ADMIN_KEY" -H 'Content-Ty
 
 ### Projects and deployments
 
-A project belongs to the user who created it and is visible only to them: another user gets `404` for it, as for an id that does not exist. Its `slug` is unique across all users, because it names the project's namespace (`p-<slug>`) and host. A deployment moves through `queued`, `building`, `pushing`, `deploying` and then `ready` or `failed`; deploying an existing image goes straight from `queued` to `deploying`. A background loop watches `deploying` deployments and marks them `ready` or `failed` from the cluster's rollout status, and after ten minutes without either as `failed`. Deploying again fails any older unfinished deployment of the project as superseded.
+A project belongs to the user who created it and is visible only to them. Another user gets `404` for it, the same answer as for an id that does not exist. Its `slug` is unique across all users, because it names the project's namespace (`p-<slug>`) and host. A deployment moves through `queued`, `building`, `pushing`, `deploying` and then `ready` or `failed`. Deploying an existing image goes straight from `queued` to `deploying`. A background loop watches `deploying` deployments and marks them `ready` or `failed` from the cluster's rollout status. If neither happens within ten minutes, it marks them `failed`. Deploying again fails any older unfinished deployment of the project as superseded.
 
 ### REST
 
-Served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
+The REST API is served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
 
 | Route | Purpose |
 |-------|---------|
 | `POST /applications`, `DELETE /applications/:id`, `GET /applications/:id/status` | Deploy, delete and status without a project. Admin API keys only (a key that belongs to no user), because they have no owner |
 | `POST /projects`, `GET /projects`, `GET` and `DELETE /projects/:id` | Create, list, get and delete the caller's projects. Delete tears down the project's namespace first |
 | `GET` and `POST /projects/:id/deployments`, `GET /deployments/:id` | List deployments, deploy an existing image, get one deployment |
-| `POST /projects/:id/redeploy`, `POST /projects/:id/rollback` | Run the latest image again; deploy the image of an earlier ready deployment (`{"deployment_id": ...}`) |
-| `GET /projects/:id/env`, `PUT` and `DELETE /projects/:id/env/:name` | Environment variables. Stored encrypted, values are never returned, applied on the next deploy |
+| `POST /projects/:id/redeploy`, `POST /projects/:id/rollback` | Run the latest image again. Deploy the image of an earlier ready deployment (`{"deployment_id": ...}`) |
+| `GET /projects/:id/env`, `PUT` and `DELETE /projects/:id/env/:name` | Environment variables. They are stored encrypted and applied on the next deploy, and values are never returned |
 | `/auth/*` | Register (closed unless `ALLOW_REGISTRATION=true`), log in, refresh, log out |
 | `POST /admin/users` | Create a user. Admin API keys only |
 | `/user/keys`, `/admin/keys` | API keys |
@@ -156,7 +156,7 @@ Served on `HTTP_PORT` under `/api/v1`, with Swagger UI at `/swagger/index.html`.
 | `-host` | none | Public hostname (enables the ingress) |
 | `-ssl` | `false` | Serve the host over HTTPS |
 | `-delete-id` | none | Deployment id to delete, instead of `-region` and `-name` |
-| `-network` | `host` | Accepted for compatibility; ignored |
+| `-network` | `host` | Accepted for compatibility and ignored |
 
 ## Development
 
@@ -191,4 +191,4 @@ Code layout:
 
 Proprietary, all rights reserved (see [LICENSE](LICENSE)). This is a closed project under vora.sh.
 
-The dashboard embeds two fonts with their licences in `pkg/dashboard/assets/fonts`: Switzer (ITF Free Font License, v2.0) and Fragment Mono (SIL OFL 1.1). Switzer's licence allows it on our own servers only: the file must stay byte-identical to Fontshare's (no subsetting or conversion), and must not go into a public repository or a binary or image handed to anyone else.
+The dashboard embeds two fonts with their licences in `pkg/dashboard/assets/fonts`: Switzer (ITF Free Font License, v2.0) and Fragment Mono (SIL OFL 1.1). Switzer's licence allows the font only on our own servers. The file must stay byte-identical to Fontshare's (no subsetting or conversion). It must not go into a public repository, or into a binary or image handed to anyone else.

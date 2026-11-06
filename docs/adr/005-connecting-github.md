@@ -17,7 +17,7 @@ callback URL can be forged: GitHub's own documentation says not to trust
 
 ## Decision
 
-**1. The callback does nothing but hop.** `GET /github/callback` needs no
+**1. The callback does nothing but redirect.** `GET /github/callback` needs no
 session. It answers with a `Refresh` header and a link to `/github/finish`,
 carrying only `code` and `state` and dropping every other parameter. The
 browser then navigates from this site's own page, which counts as same-site,
@@ -47,7 +47,7 @@ is an owner, or list repositories with the user's token. #20 names the owner of
 the App as an account, not an org, so this is enough to start.
 
 **5. One owner per installation.** The installation id is the primary key of
-`github_installations`; a second Vora user who tries to link it is refused, and
+`github_installations`. A second Vora user who tries to link it is refused, and
 the row is never reassigned.
 
 **6. A project is tied to its repository by ids, checked on the server.**
@@ -60,9 +60,9 @@ ask GitHub for the repository by id: any token can read any public repository,
 so that would accept a stranger's. The two ids are stored on the project
 (`github_installation_id` and `github_repo_id`, both set or neither, enforced
 by the database) and are the only link. Nothing in the REST or gRPC API can set
-them, and a test keeps it so. Those APIs still take a free-text `repo`, which is
-only a label: it is not shown as a connected repository and must never be used
-to route a push, which would let anyone claim another person's `owner/repo`.
+them, and a test enforces that. Those APIs still take a free-text `repo`, which is
+only a label. It is not shown as a connected repository and must never be used
+to route a push, because that would let anyone claim another person's `owner/repo`.
 Pushes are matched on the installation id and the repository id.
 
 **7. A push to the default branch queues a deployment, routed on ids.**
@@ -72,19 +72,19 @@ created), the branch is not being deleted, and the commit id and repository
 name are well formed (they end up in a URL path). It finds projects by the
 installation id and repository id, never by the free-text `repo`. A deployment
 is queued with no image (the build pipeline of ADR 006 builds it, or it stays
-`queued` when builds are off), and a
+`queued` when builds are off). A
 newer push fails an older queued one as superseded, so a redelivery or two
 quick pushes leave one. The delivery is recorded before it is handled and
 forgotten if handling fails, so GitHub's redelivery is handled and a copy after
 success is not. The commit status (`pending`, context `vora/<slug>`) is posted
-after the webhook has answered, because GitHub gives a delivery ten seconds, and
-a failure to post it is logged, not retried through the webhook: the deployments
-exist either way, and a redelivery would only queue them again.
+after the webhook has answered, because GitHub gives a delivery ten seconds. A
+failure to post it is logged, not retried through the webhook, because the deployments
+exist either way and a redelivery would only queue them again.
 
 ## Consequences
 
 - The page does a second navigation after GitHub. It is a redirect the user
-  barely sees, and works with scripts off.
+  barely sees, and it works with scripts off.
 - The echo request logger records the whole URL, so `code` and `state` reach
   the logs. The code is single-use, expires in ten minutes and needs the client
   secret to be redeemed. Removing the query from the log is a separate change.

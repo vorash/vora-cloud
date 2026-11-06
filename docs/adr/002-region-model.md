@@ -15,12 +15,12 @@ added.
 cluster and its ingress domain (`*.eu.<domain>`).
 
 **2. `region` is a column on `projects` and `deployments`.** A project has one
-region; a deployment records the region it ran in, so history stays correct if
+region. A deployment records the region it ran in, so history stays correct if
 a project moves.
 
 **3. The deploy interface takes a region.** A registry resolves the region to a
-per-region client from configuration. Only `eu` is configured to begin with;
-an unknown region is an error, never a default.
+per-region client from configuration. Only `eu` is configured to begin with.
+An unknown region is an error, never a default.
 
 **4. Region 1 is `eu`, on a single VM** running vora-cloud, Postgres, the
 registry and k3s. The global plane (vora-cloud and Postgres) moves off it when

@@ -12,7 +12,7 @@ in #16; this one took the next free number.
 The dashboard (M8) is where users sign in, create projects and see
 deployments. It runs on the same node as Postgres and the registry, and the
 service can deploy any image a user names, so what a stolen session or an open
-sign-up can do is large. Nothing here is "100% secure"; the goal is the
+sign-up can do is large. Nothing here is "100% secure". The goal is the
 smallest attack surface that is easy to build.
 
 ## Decision
@@ -25,8 +25,8 @@ that only improves them.
 
 **2. Browser sessions are opaque.** Signing in creates a random 256-bit token,
 stored only as its SHA-256 hash (like refresh tokens), in a cookie that is
-`HttpOnly; Secure; SameSite=Strict`. It is not the API's JWT: the API keeps
-JWTs and API keys for programs, the dashboard keeps sessions for browsers.
+`HttpOnly; Secure; SameSite=Strict`. It is not the API's JWT. The API keeps
+JWTs and API keys for programs, and the dashboard keeps sessions for browsers.
 Sessions last 12 hours, sign-out deletes the row, and a session of a
 deactivated user stops working at once (the lookup requires an active user).
 Ending sessions on a password change is not built yet.
@@ -42,7 +42,7 @@ setting is permissive but never allows credentials, and the cookie is
 leave the other as the way in). An unknown email, a wrong password and an
 inactive account get one answer and cost the same bcrypt work. Attempts are
 limited per account, five and then one every 12 seconds, from **one budget
-shared by both endpoints**, so switching endpoints buys no guesses. At most
+shared by both endpoints**, so switching endpoints gives no extra guesses. At most
 four password checks run at once, which bounds the CPU an anonymous caller can
 use. A limit per source address belongs to the edge (Traefik or Pangolin):
 behind a proxy the app sees only the proxy's address, and forwarded headers
@@ -50,7 +50,7 @@ can be forged. The cost is that someone can slow a known user's sign-in by
 guessing at it.
 
 **5. Sign-up is closed.** `POST /auth/register` returns 403 unless
-`ALLOW_REGISTRATION=true`; users are created with an admin API key
+`ALLOW_REGISTRATION=true`. Users are created with an admin API key
 (`POST /admin/users`). Reopening it waits for per-project quotas and
 network policies (M6), because a user can run arbitrary images on the shared
 node.
@@ -69,7 +69,7 @@ reload stays true.
 Live status is a server-sent-events endpoint, `GET /projects/:id/events`:
 
 - It uses the session cookie and asks `project.Service`, so the ownership rule
-  is the page's. Another user's project, an unknown one and a malformed id all
+  is the same as the page's. Another user's project, an unknown one and a malformed id all
   answer 404, before any stream starts. The session cookie is `HttpOnly`, so
   the script cannot read it, and there is still no token in the page.
 - It re-checks the session on every poll, so signing out (or deactivating the
@@ -103,9 +103,9 @@ Live status is a server-sent-events endpoint, `GET /projects/:id/events`:
   `prefers-reduced-motion`.
 - The policy also allows the origin's own fonts and images
   (`font-src 'self'; img-src 'self'`), and, since decision 6, its own script and
-  requests (`script-src 'self'; connect-src 'self'`), and nothing else: the
+  requests (`script-src 'self'; connect-src 'self'`), and nothing else. The
   stylesheet, the script, two fonts and the logo are embedded in the binary and
-  served from `/assets/`. No `data:` images, no inline styles. The fonts carry licences that limit
+  served from `/assets/`. There are no `data:` images and no inline styles. The fonts carry licences that limit
   where the binary may go (see the README).
 - Environment variables (`/projects/:id/env`) are write-only in the dashboard:
   it lists names, and a value goes in through a password-type field, is sealed

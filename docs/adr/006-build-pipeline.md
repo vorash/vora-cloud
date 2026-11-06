@@ -36,7 +36,7 @@ BuildKit image `moby/buildkit:rootless` (123 MB, digest `f8a833b2de9d6...`).
 | Does rootless BuildKit run as a plain Job, not privileged, as uid 1000, with seccomp and AppArmor `Unconfined`? | Yes, although this kernel has `apparmor_restrict_unprivileged_userns=1`. A one-step build, including pulling the base image, took 20 seconds |
 | Can it push to the registry from a pod? | Yes, over plain HTTP to the ClusterIP Service (`registry.insecure=true`), as `registry.registry.svc.cluster.local:5000/<repo>:<tag>` |
 | Can the node run what it pushed? | Yes: containerd pulled it as `localhost:5000/<repo>:<tag>` through the existing mirror, so a deployment names the image that way |
-| What does a `RUN` step run as? | root in a nested user namespace, with default container capabilities and a seccomp filter; it sees no host mounts, no service account token and no Docker socket |
+| What does a `RUN` step run as? | root in a nested user namespace, with default container capabilities and a seccomp filter. It sees no host mounts, no service account token and no Docker socket |
 | What can a `RUN` step reach by default? | The internet, the registry, vora-cloud's HTTP port on the node, the Kubernetes API and the kubelet. The API and kubelet answer 401 to an anonymous request |
 | Does a NetworkPolicy fix that? | For everything but the registry: with egress limited to cluster DNS, the registry namespace on 5000 and the internet outside the private ranges, a build step could no longer reach the node, the API, the kubelet or vora-cloud ("connection refused"), and the build still pulled, built and pushed |
 | What can a `RUN` step do to the registry? | Everything: with that policy in place, a step read another image's digest and **deleted its manifest** (HTTP 202). The registry has no authentication, and the push needs the same access |
@@ -61,7 +61,7 @@ tested, because A works.
 maintained.
 
 **D. Buildpacks.** Framework detection is deferred by the roadmap. A Dockerfile
-first.
+comes first.
 
 ## Decision (proposed)
 
@@ -81,7 +81,7 @@ first.
    moves `queued` to `building` to `pushing` to `deploying`, which the state
    machine already allows. The deployer is called only after a successful push,
    so a failed build leaves the previous deployment serving.
-5. **Dockerfile only**, at the repository root; a path in the project's build
+5. **Dockerfile only**, at the repository root. A path in the project's build
    configuration comes later.
 6. **Queue.** vora-cloud runs the builds: one at a time on this node, a timeout
    (the Job's `activeDeadlineSeconds`), cancellation by deleting the Job, and
@@ -89,7 +89,7 @@ first.
    or running build, as it already supersedes a queued deployment.
 7. **Logs** are read from the Job's pod while it runs, stored with the build, and
    streamed to the dashboard over server-sent events. The stream that exists sends
-   a project's statuses; the log has an event stream of its own per deployment
+   a project's statuses. The log has an event stream of its own per deployment
    (`.../deployments/:dep/log/stream`), because a page about one build should not
    receive every deployment's text. It reads the stored log through the project
    service, never the pod, so the owner check and the removal of tokens are the
@@ -137,7 +137,7 @@ first.
   would on a warm daemon. This is the price of nothing privileged and nothing
   long-running.
 - Every build holds a token and runs user code in one pod. The token is limited
-  in what it can read and in time; the user code is limited in what it can reach.
+  in what it can read and in time. The user code is limited in what it can reach.
 
 ## What the orchestration settled (2026-10-06)
 
@@ -153,7 +153,7 @@ Implemented in vora-cloud #48.
   projects on one repository, each with its own. The create form asks for both,
   and for the port the app listens on. Paths stay inside the repository and carry
   nothing a BuildKit option list could take apart.
-- **The cache is imported only if it exists.** Asking for one that does not makes
+- **The cache is imported only if it exists.** Asking for one that does not exist makes
   BuildKit log an error, although the build goes on, and the first build of every
   project would show it.
 - **State is in the database and in the Jobs.** A restart follows a running build,
@@ -189,6 +189,6 @@ Then through the orchestrator, on the staging guest, from a real push (vora-clou
 | A project created before build settings existed (default `Dockerfile`, which the repository does not have) | The private fetch worked, the build failed in 7 s with BuildKit's error, the deployment was marked failed with it, the log was stored, and nothing was left in the namespace |
 | Two projects on one repository, one push | One deployment each, built one at a time |
 
-The app that was deployed then crashed on start for want of a database setting.
+The app that was deployed then crashed on start because a database setting was missing.
 That is the app's configuration. The deployment stays `deploying` until the
 10-minute rollout timeout of the project service fails it.

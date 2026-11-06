@@ -12,12 +12,12 @@ exists today.
 
 ## Decision
 
-**1. k3s is the substrate, replacing Nomad.** Reasons: Apache-2.0, where Nomad
-1.7 and later is BUSL 1.1 with a hosted-offering clause that matters for a paid
-hosted platform; Traefik, containerd and NetworkPolicy come bundled; client-go
-has a fake clientset and `envtest` (a real kube-apiserver and etcd without
-privileges) for tests that need no cluster; and the Nomad path depended on the
-community `containerd-driver` plugin.
+**1. k3s is the base layer, replacing Nomad.** Reasons: k3s is Apache-2.0, where
+Nomad 1.7 and later is BUSL 1.1 with a hosted-offering clause that matters for a
+paid hosted platform. Traefik, containerd and NetworkPolicy come bundled.
+client-go has a fake clientset and `envtest` (a real kube-apiserver and etcd
+without privileges) for tests that need no cluster. The Nomad path depended on
+the community `containerd-driver` plugin.
 
 **2. One small cluster per region.** k3s supports multicloud, but its docs warn
 that latency can hurt cluster health, that embedded etcd is not supported
@@ -32,7 +32,7 @@ runners. No Rancher, Fleet, Karmada or Submariner.
 
 **4. The only cross-region link is vora-cloud to each region's API** over
 WireGuard or Tailscale. There is no cross-region pod network and no BGP or
-anycast: a project's DNS record points at the ingress of the region the client
+anycast. A project's DNS record points at the ingress of the region the client
 chose.
 
 ## Consequences
